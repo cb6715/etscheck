@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { LogIn, LogOut, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { checkIn, checkOut, getWageContext, type WageContext } from "@/lib/actions/worksessions";
-import { computeIntervalEarnings, netForIncrement } from "@/lib/wage/engine";
+import { computeIntervalEarnings, netForCumulativeGross } from "@/lib/wage/engine";
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
@@ -37,15 +37,16 @@ export function WageBar() {
   const live = useMemo(() => {
     if (!context?.openSession || !now) return null;
     const checkInAt = new Date(context.openSession.checkInAt);
-    const { paidSeconds, grossAmount } = computeIntervalEarnings(
-      checkInAt,
-      now,
-      context.priorWeekPaidSeconds,
-      context.config
-    );
-    const netAmount = netForIncrement(context.priorPeriodGross, grossAmount, context.config);
-    return { paidSeconds, grossAmount, netAmount };
+    return computeIntervalEarnings(checkInAt, now, context.priorWeekPaidSeconds, context.config);
   }, [context, now]);
+
+  // Total netto optjent i hele lønperioden til dato — vises altid, også når
+  // man ikke er tjekket ind, og tikker op i takt med den åbne vagt.
+  const totalNet = useMemo(() => {
+    if (!context) return null;
+    const cumulativeGross = context.priorPeriodGross + (live?.grossAmount ?? 0);
+    return netForCumulativeGross(cumulativeGross, context.config);
+  }, [context, live]);
 
   function handleCheckIn() {
     startTransition(async () => {
@@ -61,44 +62,46 @@ export function WageBar() {
     });
   }
 
-  if (!context) {
+  if (!context || totalNet === null) {
     return <div className="h-14 shrink-0 border-b border-border bg-surface" />;
   }
 
+  const checkedIn = Boolean(context.openSession && live);
+
   return (
     <div className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4 sm:px-6">
-      {context.openSession && live ? (
-        <>
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
-            </span>
-            <Wallet size={16} className="shrink-0 text-muted" />
-            <span className="truncate font-mono text-base font-bold tabular-nums tracking-tight text-success sm:text-lg">
-              {formatKr(live.netAmount)}
-            </span>
-            <span className="hidden shrink-0 text-xs text-muted sm:inline">
-              netto · {formatHMS(live.paidSeconds)} på arbejde
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleCheckOut}
-            disabled={pending}
-            className="flex shrink-0 items-center gap-1.5"
-          >
-            <LogOut size={14} /> Tjek ud
-          </Button>
-        </>
+      <div className="flex min-w-0 items-center gap-2">
+        {checkedIn ? (
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
+          </span>
+        ) : (
+          <Wallet size={16} className="shrink-0 text-muted" />
+        )}
+        <span
+          className={`truncate font-mono text-base font-bold tabular-nums tracking-tight sm:text-lg ${checkedIn ? "text-success" : "text-foreground"}`}
+        >
+          {formatKr(totalNet)}
+        </span>
+        <span className="hidden shrink-0 text-xs text-muted sm:inline">
+          netto denne periode{checkedIn && live ? ` · ${formatHMS(live.paidSeconds)} på arbejde nu` : ""}
+        </span>
+      </div>
+      {checkedIn ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={handleCheckOut}
+          disabled={pending}
+          className="flex shrink-0 items-center gap-1.5"
+        >
+          <LogOut size={14} /> Tjek ud
+        </Button>
       ) : (
-        <>
-          <span className="text-sm text-muted">Ikke tjekket ind</span>
-          <Button size="sm" onClick={handleCheckIn} disabled={pending} className="flex shrink-0 items-center gap-1.5">
-            <LogIn size={14} /> Tjek ind
-          </Button>
-        </>
+        <Button size="sm" onClick={handleCheckIn} disabled={pending} className="flex shrink-0 items-center gap-1.5">
+          <LogIn size={14} /> Tjek ind
+        </Button>
       )}
     </div>
   );
