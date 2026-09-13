@@ -55,7 +55,7 @@ export async function getTasksForDay(date: Date) {
   const userId = await getCurrentUserId();
   const day = startOfDay(date);
   return prisma.task.findMany({
-    where: { userId, scheduledFor: day, deletedAt: null },
+    where: { userId, scheduledFor: day, deletedAt: null, cancelledAt: null, isQuantityTask: false },
     include: { checklistItems: { orderBy: { order: "asc" } }, category: true },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });

@@ -56,6 +56,23 @@ enum NoteTargetType {
   GENERAL
 }
 
+enum Shift {
+  DAGHOLD
+  NATHOLD
+  ANDRE
+}
+
+enum BriefingRole {
+  USER
+  ASSISTANT
+}
+
+enum EndOfDayDecision {
+  CARRIED_OVER
+  NOT_NEEDED
+  CLOSED_ANYWAY
+}
+
 // ─────────────────────────────────────────────────────────────
 // CORE
 // ─────────────────────────────────────────────────────────────
@@ -76,6 +93,8 @@ model User {
   notifications Notification[]
   categories    Category[]
   dailyActivity DailyActivity[]
+  quantityLog   QuantityLogEntry[]
+  briefings     DailyBriefing[]
 }
 
 model Category {
@@ -147,6 +166,13 @@ model Task {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
+  cancelledAt DateTime?
+
+  // Quantity-based work items (from briefings), e.g. "8 vaske", "3 juletræer"
+  isQuantityTask Boolean @default(false)
+  quantityTotal  Int?
+  quantityDone   Int?    @default(0)
+  quantityUnit   String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -157,11 +183,76 @@ model Task {
   templateId String?
   template   TaskTemplate? @relation(fields: [templateId], references: [id])
 
+  sourceBriefingId String?
+  sourceBriefing   DailyBriefing? @relation(fields: [sourceBriefingId], references: [id])
+
+  carriedOverFromId String? @unique
+  carriedOverFrom   Task?   @relation("CarryOver", fields: [carriedOverFromId], references: [id])
+  carriedOverTo     Task?   @relation("CarryOver")
+
   checklistItems TaskChecklistItem[]
   notes          Note[]
+  quantityLog    QuantityLogEntry[]
 
   @@index([userId, scheduledFor])
   @@index([templateId])
+  @@index([sourceBriefingId])
+}
+
+model QuantityLogEntry {
+  id        String   @id @default(cuid())
+  delta     Int
+  shift     Shift    @default(DAGHOLD)
+  shiftLabel String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// GODMORGEN-BRIEFING / ARBEJDSASSISTENT
+// ─────────────────────────────────────────────────────────────
+
+model DailyBriefing {
+  id       String   @id @default(cuid())
+  date     DateTime // truncated to day
+
+  plannedSummary       Json?    // frozen snapshot of the plan as first understood
+  pendingConfirmation  Json?    // action list awaiting user confirmation
+  pendingClarification Json?    // { question, pendingAction } awaiting a short reply
+
+  closedAt       DateTime?
+  closedSummary  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  messages BriefingMessage[]
+  tasks    Task[]
+
+  @@unique([userId, date])
+}
+
+model BriefingMessage {
+  id        String       @id @default(cuid())
+  role      BriefingRole
+  text      String
+  createdAt DateTime     @default(now())
+
+  briefingId String
+  briefing   DailyBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+
+  @@index([briefingId])
 }
 
 model TaskChecklistItem {

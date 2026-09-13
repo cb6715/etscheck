@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, ClipboardList, Car, Truck, StickyNote, AlertTriangle } from "lucide-react";
+import { Plus, ClipboardList, Car, Truck, StickyNote, AlertTriangle, Sun } from "lucide-react";
 import { Modal } from "@/components/ui/primitives";
 
 const ACTIONS = [
+  { label: "Briefing", icon: Sun, href: "/planlaegning", tone: "text-accent bg-warning-bg" },
   { label: "Opgave", icon: ClipboardList, href: "/opgaver?new=1", tone: "text-info bg-info-bg" },
   { label: "Drive-in", icon: Car, href: "/drive-in?new=1", tone: "text-warning bg-warning-bg" },
   { label: "Trailer", icon: Truck, href: "/vask?new=1", tone: "text-brand bg-info-bg" },

@@ -1,7 +1,8 @@
-import { Home, ClipboardList, Truck, Car, Search, Settings, Calendar, BarChart3, StickyNote } from "lucide-react";
+import { Home, ClipboardList, Truck, Car, Search, Settings, Calendar, BarChart3, StickyNote, Sun } from "lucide-react";
 
 export const NAV_ITEMS = [
   { href: "/", label: "Hjem", icon: Home },
+  { href: "/planlaegning", label: "Plan", icon: Sun },
   { href: "/opgaver", label: "Arbejde", icon: ClipboardList },
   { href: "/vask", label: "Vask", icon: Truck },
   { href: "/drive-in", label: "Drive-in", icon: Car },

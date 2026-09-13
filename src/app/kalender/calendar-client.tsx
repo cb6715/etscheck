@@ -7,8 +7,9 @@ import { Card } from "@/components/ui/primitives";
 import { TaskItem } from "@/components/tasks/task-item";
 import { getMonthTaskCounts } from "@/lib/actions/calendar";
 import { getTasksForDay } from "@/lib/actions/tasks";
-import { formatDayHeading, isSameDay } from "@/lib/date";
-import type { Prisma } from "@prisma/client";
+import { getBriefingForDate } from "@/lib/actions/briefing";
+import { formatDayHeading, isSameDay, formatTime } from "@/lib/date";
+import type { Prisma, BriefingMessage } from "@prisma/client";
 
 type TaskWithRelations = Prisma.TaskGetPayload<{
   include: { checklistItems: true; category: true };
@@ -26,6 +27,7 @@ export function CalendarClient() {
   const [counts, setCounts] = useState<Record<string, { total: number; done: number }>>({});
   const [selectedDate, setSelectedDate] = useState(today);
   const [dayTasks, setDayTasks] = useState<TaskWithRelations[]>([]);
+  const [dayMessages, setDayMessages] = useState<BriefingMessage[]>([]);
   const [loadingDay, setLoadingDay] = useState(false);
 
   useEffect(() => {
@@ -34,8 +36,14 @@ export function CalendarClient() {
 
   useEffect(() => {
     setLoadingDay(true);
-    getTasksForDay(selectedDate)
-      .then((t) => setDayTasks(t as TaskWithRelations[]))
+    Promise.all([
+      getTasksForDay(selectedDate),
+      getBriefingForDate(selectedDate),
+    ])
+      .then(([t, briefing]) => {
+        setDayTasks(t as TaskWithRelations[]);
+        setDayMessages(briefing?.messages ?? []);
+      })
       .finally(() => setLoadingDay(false));
   }, [selectedDate]);
 
@@ -133,6 +141,26 @@ export function CalendarClient() {
           </div>
         )}
       </section>
+
+      {dayMessages.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-muted">
+            ☀️ Dagens briefing
+          </h2>
+          <Card className="space-y-2 p-4">
+            {dayMessages
+              .filter((m) => m.role === "USER")
+              .map((m) => (
+                <p key={m.id} className="text-sm">
+                  <span className="mr-1.5 text-xs font-semibold text-muted">
+                    {formatTime(new Date(m.createdAt))}
+                  </span>
+                  {m.text}
+                </p>
+              ))}
+          </Card>
+        </section>
+      )}
     </div>
   );
 }

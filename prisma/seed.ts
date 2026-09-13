@@ -24,11 +24,18 @@ async function main() {
   });
 
   const categoriesData = [
-    { name: "Rengøring", icon: "🧹", color: "#22c55e", order: 0 },
-    { name: "Trailere", icon: "🚛", color: "#3b82f6", order: 1 },
-    { name: "Drive-in", icon: "🚗", color: "#f59e0b", order: 2 },
-    { name: "Vedligeholdelse", icon: "🔧", color: "#a855f7", order: 3 },
-    { name: "Andet", icon: "📦", color: "#64748b", order: 4 },
+    { name: "Vaske", icon: "🚿", color: "#3b82f6", order: 0 },
+    { name: "Juletræer", icon: "🎄", color: "#16a34a", order: 1 },
+    { name: "Paller", icon: "📦", color: "#a16207", order: 2 },
+    { name: "Kødkroge", icon: "🪝", color: "#78716c", order: 3 },
+    { name: "Rengøring", icon: "🧹", color: "#22c55e", order: 4 },
+    { name: "Vedligeholdelse", icon: "🔧", color: "#a855f7", order: 5 },
+    { name: "Drive-in", icon: "🚗", color: "#f59e0b", order: 6 },
+    { name: "Modtagelser", icon: "📥", color: "#0891b2", order: 7 },
+    { name: "På plads", icon: "📍", color: "#db2777", order: 8 },
+    { name: "Andre opgaver", icon: "📋", color: "#64748b", order: 9 },
+    { name: "Trailere", icon: "🚛", color: "#3b82f6", order: 10 },
+    { name: "Andet", icon: "📦", color: "#64748b", order: 11 },
   ];
 
   const categories: Record<string, string> = {};
