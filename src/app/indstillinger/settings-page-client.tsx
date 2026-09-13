@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Trash2, Settings as SettingsIcon, RotateCw } from "lucide-react";
+import { Plus, Trash2, Settings as SettingsIcon, RotateCw, Wallet } from "lucide-react";
 import { Card, Button, Badge, Modal, Field, inputClass, EmptyState } from "@/components/ui/primitives";
 import { createCategory, deleteCategory } from "@/lib/actions/misc";
 import { toggleTemplateActive, deleteTemplate } from "@/lib/actions/tasks";
+import { WageSettingsForm } from "@/components/settings/wage-settings-form";
 import { RECURRENCE_LABELS } from "@/lib/recurrence";
 import { weekdayShort } from "@/lib/date";
+import type { WageConfig } from "@/lib/wage/engine";
 import type { Prisma } from "@prisma/client";
 
 type Category = Prisma.CategoryGetPayload<object>;
@@ -20,9 +22,11 @@ const COLOR_OPTIONS = ["#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#ef4444", "#
 export function SettingsPageClient({
   categories,
   templates,
+  wageSettings,
 }: {
   categories: Category[];
   templates: TemplateWithRelations[];
+  wageSettings: WageConfig;
 }) {
   const [, startTransition] = useTransition();
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -122,6 +126,15 @@ export function SettingsPageClient({
             ))}
           </div>
         )}
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-muted">
+            <Wallet size={14} /> Løn
+          </h2>
+        </div>
+        <WageSettingsForm settings={wageSettings} />
       </section>
 
       <section>

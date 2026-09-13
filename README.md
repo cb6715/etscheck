@@ -26,6 +26,7 @@ npm run dev
 ## Funktioner
 
 - **Dashboard**: dagens status, fremgangsbar, problemer, hurtigt overblik
+- **💰 Tjek ind/ud + live løn**: bjælke i toppen af appen — tjek ind når du møder, og se din nettoløn tikke opad hvert sekund du er på arbejde (pauser, nattillæg og 37-timers overtid regnes automatisk med). Se afsnittet nedenfor.
 - **☀️ Godmorgen-briefing / arbejdsassistent** (`/planlaegning`): skriv eller tal naturligt dansk om dagens arbejde ("8 vaske fra haven, 2 taget af natholdet, 3 juletræer skal ryddes op") — appen omdanner det til en struktureret arbejdsplan med mængder, nathold-attribution og "plan vs. faktisk". Se afsnittet nedenfor.
 - **Opgaver**: opret, rediger, prioriter, checklister, gentagne rutiner (dagligt/hverdage/ugedage/ugentligt/hver 2. uge/månedligt/bestemt dato)
 - **Vaskeplan**: trailere, status, vaskehistorik, noter, firma (DFDS/DSV) sat på traileren og forudvalgt ved vask (plombe-nr. for DFDS), 📷 tag et billede af traileren for at genkende trailernummer/nummerplade automatisk (kører helt lokalt i browseren — se afsnittet nedenfor)
@@ -51,6 +52,17 @@ Store, tvetydige beskeder (typisk den første morgenbriefing) vises som en bekr�
 "Tag billede af trailer" i tilføj-trailer-formularen bruger [Tesseract.js](https://github.com/naptha/tesseract.js) — en almindelig, gratis OCR-motor der kører 100% i browseren via WebAssembly. Ingen AI-API, ingen server-kald, ingen omkostning: billedet forlader aldrig telefonen, det læses ind i et `<canvas>`, tekstgenkendelsen kører lokalt, og billedet kasseres med det samme.
 
 Worker-scriptet, WASM-motoren og det engelske tegnsæt (`public/tesseract/`) er hostet direkte i appen i stedet for hentet fra en ekstern CDN ved brug — det gør funktionen mere robust (virker selvom en CDN er nede) og sikrer at versionerne altid matcher. Genkendt tekst tolkes af `src/lib/trailer-ocr.ts`: finder et dansk nummerplade-mønster og et 3-6-cifret trailernummer, og gætter DSV som firma hvis nummeret starter med "500" (alt er stadig frit redigerbart før du gemmer).
+
+## Tjek ind/ud + live løn
+
+Bjælken i toppen af appen (`src/components/wage/wage-bar.tsx`) lader dig tjekke ind/ud, og tæller din nettoløn op live med et sekunds mellemrum mens du er tjekket ind. Beregningen (`src/lib/wage/engine.ts`) er ren, testet matematik uden nogen server-afhængighed i selve tælleren:
+
+- **Grundløn** kr/time, med **overtidstillæg** når ugens betalte timer overstiger tærsklen (default 37 t/uge — sporet på tværs af tidligere afsluttede vagter denne uge).
+- **Nattillæg** i det konfigurerede tidsrum (default 17:00–05:00), som lægges oveni evt. overtidstillæg.
+- En daglig **ulønnet pause** (default 12:00–12:30) trækkes automatisk fra og tæller ikke med.
+- **Skat**: AM-bidrag trækkes altid først; et månedligt **skattefradrag** gør at de første kr hver måned kun rammes af AM-bidrag, hvorefter resten beskattes med skatteprocenten — sporet på tværs af tidligere afsluttede vagter denne måned, så tælleren automatisk skifter til efter-fradrag-satsen på det rigtige sekund.
+
+Alle tal er dine egne og redigeres under **Indstillinger → Løn**. Da appen kun har én bruger, er dette en personlig lommeregner, ikke en officiel lønseddel — men beregningsrækkefølgen (AM-bidrag → fradrag → skat) følger den almindelige danske model.
 
 ## Deploy til Netlify
 

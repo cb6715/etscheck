@@ -95,6 +95,8 @@ model User {
   dailyActivity DailyActivity[]
   quantityLog   QuantityLogEntry[]
   briefings     DailyBriefing[]
+  workSessions  WorkSession[]
+  wageSettings  WageSettings?
 }
 
 model Category {
@@ -416,4 +418,45 @@ model DailyActivity {
   user   User   @relation(fields: [userId], references: [id])
 
   @@unique([userId, date])
+}
+
+// ─────────────────────────────────────────────────────────────
+// LØN / TIDSREGISTRERING
+// ─────────────────────────────────────────────────────────────
+
+// Personlige lønregler — bruges af src/lib/wage/engine.ts til at beregne
+// brutto/netto løn live ud fra tjek-ind/tjek-ud-tidspunkter.
+model WageSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  hourlyRate             Float @default(150) // kr/time, grundløn
+  overtimeThresholdHours Float @default(37) // timer/uge før overtid
+  overtimeBonusPct       Float @default(0.6) // ekstra % af grundløn i overtid
+  nightSupplement        Float @default(25) // kr/time tillæg i nattetimer
+  nightStartHour         Int   @default(17) // nattillæg fra kl.
+  nightEndHour           Int   @default(5) // nattillæg til kl.
+  breakStartMinutes      Int   @default(720) // ulønnet pause fra (minutter efter midnat), 720 = 12:00
+  breakEndMinutes        Int   @default(750) // ulønnet pause til, 750 = 12:30
+  monthlyTaxDeduction    Float @default(5100) // skattefradrag kr/måned
+  amBidragPct            Float @default(0.08) // AM-bidrag
+  taxRatePct             Float @default(0.44) // skatteprocent
+
+  updatedAt DateTime @updatedAt
+}
+
+model WorkSession {
+  id          String    @id @default(cuid())
+  checkInAt   DateTime
+  checkOutAt  DateTime?
+  paidSeconds Int? // sat ved tjek-ud, ekskl. ulønnet pause
+  grossAmount Float? // sat ved tjek-ud, kr før skat
+  netAmount   Float? // sat ved tjek-ud, kr efter skat
+  createdAt   DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId, checkInAt])
 }

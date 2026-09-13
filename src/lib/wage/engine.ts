@@ -1,0 +1,161 @@
+// Pure wage-calculation math, kept free of Prisma/DB access so it can be
+// unit-tested and reused identically on both the server (checkout) and the
+// client (the live per-second counter).
+
+export type WageConfig = {
+  hourlyRate: number;
+  overtimeThresholdHours: number;
+  overtimeBonusPct: number;
+  nightSupplement: number;
+  nightStartHour: number;
+  nightEndHour: number;
+  breakStartMinutes: number;
+  breakEndMinutes: number;
+  monthlyTaxDeduction: number;
+  amBidragPct: number;
+  taxRatePct: number;
+};
+
+export const DEFAULT_WAGE_CONFIG: WageConfig = {
+  hourlyRate: 150,
+  overtimeThresholdHours: 37,
+  overtimeBonusPct: 0.6,
+  nightSupplement: 25,
+  nightStartHour: 17,
+  nightEndHour: 5,
+  breakStartMinutes: 12 * 60,
+  breakEndMinutes: 12 * 60 + 30,
+  monthlyTaxDeduction: 5100,
+  amBidragPct: 0.08,
+  taxRatePct: 0.44,
+};
+
+function startOfLocalDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function atMinuteOfDay(day: Date, minutes: number): Date {
+  const d = new Date(day);
+  d.setHours(0, minutes, 0, 0);
+  return d;
+}
+
+/**
+ * Every clock-time boundary (break start/end, night start/end) that falls
+ * strictly inside (start, end), across every calendar day the interval
+ * spans — plus start/end themselves. Splitting on these first means every
+ * resulting chunk has a single, unambiguous break/night status throughout.
+ */
+function collectBoundaries(start: Date, end: Date, config: WageConfig): Date[] {
+  const times = new Set<number>([start.getTime(), end.getTime()]);
+  const dayCursor = startOfLocalDay(start);
+  const markers = [
+    config.nightEndHour * 60,
+    config.breakStartMinutes,
+    config.breakEndMinutes,
+    config.nightStartHour * 60,
+  ];
+  while (dayCursor.getTime() <= end.getTime()) {
+    for (const minutes of markers) {
+      const t = atMinuteOfDay(dayCursor, minutes);
+      if (t.getTime() > start.getTime() && t.getTime() < end.getTime()) {
+        times.add(t.getTime());
+      }
+    }
+    dayCursor.setDate(dayCursor.getDate() + 1);
+  }
+  return [...times].sort((a, b) => a - b).map((t) => new Date(t));
+}
+
+function isBreakMoment(date: Date, config: WageConfig): boolean {
+  const minuteOfDay = date.getHours() * 60 + date.getMinutes();
+  return minuteOfDay >= config.breakStartMinutes && minuteOfDay < config.breakEndMinutes;
+}
+
+function isNightMoment(date: Date, config: WageConfig): boolean {
+  const hour = date.getHours();
+  return hour >= config.nightStartHour || hour < config.nightEndHour;
+}
+
+export type IntervalEarnings = {
+  /** Paid seconds elapsed in [start, end), i.e. excluding the unpaid break. */
+  paidSeconds: number;
+  /** Gross kr earned in [start, end), given what came before it this week. */
+  grossAmount: number;
+};
+
+/**
+ * Gross pay for the interval [start, end), given how many paid seconds were
+ * already worked earlier this week (so the 37-timers-overtime threshold can
+ * be crossed mid-interval). Handles a chunk straddling the threshold by
+ * splitting it into a normal-rate part and an overtime-rate part.
+ */
+export function computeIntervalEarnings(
+  start: Date,
+  end: Date,
+  priorWeekPaidSeconds: number,
+  config: WageConfig
+): IntervalEarnings {
+  if (end <= start) return { paidSeconds: 0, grossAmount: 0 };
+
+  const boundaries = collectBoundaries(start, end, config);
+  const thresholdSeconds = config.overtimeThresholdHours * 3600;
+
+  let cumulativePaidSeconds = priorWeekPaidSeconds;
+  let paidSeconds = 0;
+  let grossAmount = 0;
+
+  const addSegment = (durationSeconds: number, isNight: boolean, isOvertime: boolean) => {
+    const rate =
+      config.hourlyRate * (isOvertime ? 1 + config.overtimeBonusPct : 1) +
+      (isNight ? config.nightSupplement : 0);
+    grossAmount += (rate / 3600) * durationSeconds;
+    paidSeconds += durationSeconds;
+    cumulativePaidSeconds += durationSeconds;
+  };
+
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const t0 = boundaries[i];
+    const t1 = boundaries[i + 1];
+    const durationSeconds = (t1.getTime() - t0.getTime()) / 1000;
+    if (durationSeconds <= 0) continue;
+
+    const midpoint = new Date((t0.getTime() + t1.getTime()) / 2);
+    if (isBreakMoment(midpoint, config)) continue; // unpaid, doesn't count towards paidSeconds either
+
+    const isNight = isNightMoment(midpoint, config);
+    let remaining = durationSeconds;
+
+    if (cumulativePaidSeconds < thresholdSeconds) {
+      const normalPart = Math.min(remaining, thresholdSeconds - cumulativePaidSeconds);
+      addSegment(normalPart, isNight, false);
+      remaining -= normalPart;
+    }
+    if (remaining > 0) {
+      addSegment(remaining, isNight, true);
+    }
+  }
+
+  return { paidSeconds, grossAmount };
+}
+
+/** Absolute net kr for a given cumulative monthly gross figure. */
+export function netForCumulativeGross(cumulativeGross: number, config: WageConfig): number {
+  const amBidrag = cumulativeGross * config.amBidragPct;
+  const taxableIncome = Math.max(0, cumulativeGross - amBidrag - config.monthlyTaxDeduction);
+  const tax = taxableIncome * config.taxRatePct;
+  return cumulativeGross - amBidrag - tax;
+}
+
+/**
+ * Net kr attributable to `incrementGross`, given `priorMonthGross` already
+ * earned this month — correctly prorates across the skattefradrag threshold
+ * if the increment straddles it.
+ */
+export function netForIncrement(priorMonthGross: number, incrementGross: number, config: WageConfig): number {
+  return (
+    netForCumulativeGross(priorMonthGross + incrementGross, config) - netForCumulativeGross(priorMonthGross, config)
+  );
+}
