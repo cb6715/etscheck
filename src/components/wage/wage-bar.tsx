@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
 import { LogIn, LogOut, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { checkIn, checkOut, getWageContext, type WageContext } from "@/lib/actions/worksessions";
 import { computeIntervalEarnings, netForCumulativeGross } from "@/lib/wage/engine";
+import { WAGE_CONTEXT_CHANGED_EVENT } from "@/lib/wage/events";
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
@@ -19,12 +21,26 @@ function formatHMS(totalSeconds: number): string {
 }
 
 export function WageBar() {
+  const pathname = usePathname();
   const [context, setContext] = useState<WageContext | null>(null);
   const [now, setNow] = useState<Date | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Refetch on every route change, and whenever something elsewhere on the
+  // current page changed wage data (see WAGE_CONTEXT_CHANGED_EVENT) — the
+  // bar stays mounted across navigation (it lives in the app shell, not a
+  // page), so nothing would otherwise tell it e.g. a historical week was
+  // just logged on Indstillinger.
   useEffect(() => {
     getWageContext().then(setContext);
+  }, [pathname]);
+
+  useEffect(() => {
+    function refetch() {
+      getWageContext().then(setContext);
+    }
+    window.addEventListener(WAGE_CONTEXT_CHANGED_EVENT, refetch);
+    return () => window.removeEventListener(WAGE_CONTEXT_CHANGED_EVENT, refetch);
   }, []);
 
   useEffect(() => {

@@ -5,6 +5,7 @@ import { Wallet } from "lucide-react";
 import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
 import { updateWageSettings } from "@/lib/actions/worksessions";
 import { lastWeekdayOfMonth, type WageConfig } from "@/lib/wage/engine";
+import { notifyWageContextChanged } from "@/lib/wage/events";
 import { formatShortDate } from "@/lib/date";
 
 function minutesToTime(minutes: number): string {
@@ -72,6 +73,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         payPeriodStart: inputValueToDate(payPeriodStart),
         payPeriodEnd: inputValueToDate(payPeriodEnd),
       });
+      notifyWageContextChanged();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     });

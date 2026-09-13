@@ -9,6 +9,7 @@ import {
   seedKnownHistoricalWeeks,
   type HistoricalWeek,
 } from "@/lib/actions/worksessions";
+import { notifyWageContextChanged } from "@/lib/wage/events";
 import { formatShortDate } from "@/lib/date";
 
 function formatKr(n: number): string {
@@ -37,6 +38,7 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
     setSeedResult("");
     startTransition(async () => {
       const { inserted, skipped } = await seedKnownHistoricalWeeks();
+      notifyWageContextChanged();
       setSeedResult(
         inserted > 0
           ? `Tilføjet ${inserted} uge(r)${skipped > 0 ? ` (${skipped} var allerede der)` : ""}.`
@@ -55,6 +57,7 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
     startTransition(async () => {
       try {
         await logHistoricalWeek(inputValueToDate(weekOf), h);
+        notifyWageContextChanged();
         setHours("");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Kunne ikke gemme ugen.");
@@ -63,7 +66,10 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
   }
 
   function remove(id: string) {
-    startTransition(() => deleteHistoricalWeek(id));
+    startTransition(async () => {
+      await deleteHistoricalWeek(id);
+      notifyWageContextChanged();
+    });
   }
 
   return (
@@ -104,9 +110,14 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
       {weeks.length > 0 && (
         <div className="space-y-2 border-t border-border pt-3">
           {weeks.map((w) => (
-            <div key={w.id} className="flex items-center justify-between gap-2 text-sm">
+            <div key={w.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-2 text-muted">
                 <History size={14} /> Uge fra {formatShortDate(new Date(w.weekStart))}
+                {!w.inPeriod && (
+                  <span className="rounded-full bg-[var(--danger-a30)] px-2 py-0.5 text-xs font-semibold text-danger">
+                    uden for lønperioden
+                  </span>
+                )}
               </span>
               <span className="font-semibold">
                 {w.hours}t · {formatKr(w.grossAmount)} brutto · {formatKr(w.netAmount)} netto

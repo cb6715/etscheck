@@ -31,7 +31,10 @@ export type WageSettingsInput = Partial<WageConfig>;
 export async function updateWageSettings(input: WageSettingsInput) {
   const userId = await getCurrentUserId();
   await getOrCreateWageSettings(userId);
-  await prisma.wageSettings.update({ where: { userId }, data: input });
+  const config = await prisma.wageSettings.update({ where: { userId }, data: input });
+  // Pay period dates may have just changed, which shifts which sessions
+  // count as "prior" for every net figure in the period.
+  await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/indstillinger");
 }
 
@@ -56,6 +59,31 @@ async function priorPeriodGross(userId: string, before: Date, config: WageConfig
     select: { grossAmount: true },
   });
   return sessions.reduce((sum, s) => sum + (s.grossAmount ?? 0), 0);
+}
+
+// Re-derives netAmount for every session in the current pay period, in
+// chronological order. Needed because a session's net share depends on how
+// much gross came *before* it in the period — inserting a manual week out
+// of date order (e.g. logging last week's hours after this week's) would
+// otherwise leave earlier-inserted sessions with a stale, wrong net figure
+// computed against an incomplete picture of the period.
+async function rebalancePeriodNetAmounts(userId: string, config: WageConfig) {
+  const { start, end } = getPayPeriodRange(config);
+  const sessions = await prisma.workSession.findMany({
+    where: { userId, checkOutAt: { not: null }, checkInAt: { gte: start, lt: end } },
+    orderBy: { checkInAt: "asc" },
+    select: { id: true, grossAmount: true, netAmount: true },
+  });
+
+  let cumulativeGross = 0;
+  for (const s of sessions) {
+    const gross = s.grossAmount ?? 0;
+    const net = netForIncrement(cumulativeGross, gross, config);
+    cumulativeGross += gross;
+    if (Math.abs((s.netAmount ?? 0) - net) > 0.001) {
+      await prisma.workSession.update({ where: { id: s.id }, data: { netAmount: net } });
+    }
+  }
 }
 
 export type WageContext = {
@@ -117,6 +145,7 @@ export async function checkOut(): Promise<WageContext> {
       where: { id: session.id },
       data: { checkOutAt: now, paidSeconds, grossAmount, netAmount },
     });
+    await rebalancePeriodNetAmounts(userId, config);
   }
 
   revalidatePath("/");
@@ -129,6 +158,9 @@ export type HistoricalWeek = {
   hours: number;
   grossAmount: number;
   netAmount: number;
+  /** false if this week falls outside the currently configured pay period
+   * — it's kept in the list but doesn't count toward the period's total. */
+  inPeriod: boolean;
 };
 
 // Weeks logged as a single "worked X hours" total (no tjek-ind/ud), used to
@@ -136,16 +168,21 @@ export type HistoricalWeek = {
 // being used. Kept separate (isManualEntry) so it's distinguishable/deletable.
 export async function getHistoricalWeeks(): Promise<HistoricalWeek[]> {
   const userId = await getCurrentUserId();
-  const rows = await prisma.workSession.findMany({
-    where: { userId, isManualEntry: true },
-    orderBy: { checkInAt: "asc" },
-  });
+  const [rows, config] = await Promise.all([
+    prisma.workSession.findMany({
+      where: { userId, isManualEntry: true },
+      orderBy: { checkInAt: "asc" },
+    }),
+    getOrCreateWageSettings(userId),
+  ]);
+  const { start, end } = getPayPeriodRange(config);
   return rows.map((r) => ({
     id: r.id,
     weekStart: r.checkInAt.toISOString(),
     hours: (r.paidSeconds ?? 0) / 3600,
     grossAmount: r.grossAmount ?? 0,
     netAmount: r.netAmount ?? 0,
+    inPeriod: r.checkInAt >= start && r.checkInAt < end,
   }));
 }
 
@@ -176,6 +213,7 @@ async function insertManualWeek(userId: string, weekOf: Date, hours: number): Pr
       isManualEntry: true,
     },
   });
+  await rebalancePeriodNetAmounts(userId, config);
   return "inserted";
 }
 
@@ -191,6 +229,8 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<vo
 export async function deleteHistoricalWeek(id: string): Promise<void> {
   const userId = await getCurrentUserId();
   await prisma.workSession.deleteMany({ where: { id, userId, isManualEntry: true } });
+  const config = await getOrCreateWageSettings(userId);
+  await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
 }
