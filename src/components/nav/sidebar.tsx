@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import { NAV_ITEMS, SIDEBAR_EXTRA_ITEMS } from "./nav-items";
@@ -16,9 +17,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface md:flex">
       <div className="flex items-center gap-2 px-6 py-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-lg font-bold text-accent-foreground">
-          A
-        </div>
+        <Image src="/logo.png" alt="" width={36} height={36} className="rounded-xl" />
         <span className="text-lg font-bold tracking-tight">Arbejdsapp</span>
       </div>
 
