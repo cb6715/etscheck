@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Droplets, AlertTriangle, MoreVertical } from "lucide-react";
-import { Card } from "@/components/ui/primitives";
+import { Card, Badge } from "@/components/ui/primitives";
 import { TrailerStatusBadge } from "./trailer-status-badge";
 import { MarkWashedModal } from "./mark-washed-modal";
 import { updateTrailerStatus } from "@/lib/actions/trailers";
@@ -53,6 +53,9 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
           </div>
           <div className="mt-2 flex items-center gap-2">
             <TrailerStatusBadge status={trailer.status} />
+            {trailer.company && (
+              <Badge tone={trailer.company === "DFDS" ? "info" : "default"}>{trailer.company}</Badge>
+            )}
             {hasProblem && (
               <span className="flex items-center gap-1 text-xs font-semibold text-danger">
                 <AlertTriangle size={12} /> Problem
@@ -102,6 +105,7 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
         onClose={() => setWashModalOpen(false)}
         trailerId={trailer.id}
         trailerNumber={trailer.number}
+        defaultCompany={trailer.company}
       />
     </Card>
   );

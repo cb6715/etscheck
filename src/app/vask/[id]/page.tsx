@@ -32,6 +32,9 @@ export default async function TrailerDetailPage({
           <h1 className="text-2xl font-bold tracking-tight">Trailer #{trailer.number}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <TrailerStatusBadge status={trailer.status} />
+            {trailer.company && (
+              <Badge tone={trailer.company === "DFDS" ? "info" : "default"}>{trailer.company}</Badge>
+            )}
             {trailer.licensePlate && <Badge>{trailer.licensePlate}</Badge>}
             {trailer.type && <Badge>{trailer.type}</Badge>}
           </div>
@@ -47,7 +50,12 @@ export default async function TrailerDetailPage({
         </Card>
       )}
 
-      <TrailerActions trailerId={trailer.id} trailerNumber={trailer.number} note={trailer.note} />
+      <TrailerActions
+        trailerId={trailer.id}
+        trailerNumber={trailer.number}
+        note={trailer.note}
+        company={trailer.company}
+      />
 
       <Card className="p-5">
         <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-muted">Seneste vask</h2>

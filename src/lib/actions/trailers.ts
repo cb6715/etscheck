@@ -33,6 +33,7 @@ export type CreateTrailerInput = {
   type?: string;
   note?: string;
   status?: TrailerStatus;
+  company?: WashCompany | "";
 };
 
 export async function createTrailer(input: CreateTrailerInput) {
@@ -44,6 +45,7 @@ export async function createTrailer(input: CreateTrailerInput) {
       type: input.type?.trim() || null,
       note: input.note?.trim() || null,
       status: input.status || TrailerStatus.MANGLER,
+      company: input.company || null,
     },
   });
   revalidatePath("/vask");
@@ -118,6 +120,7 @@ export async function updateTrailer(trailerId: string, input: Partial<CreateTrai
       licensePlate: input.licensePlate?.trim() || undefined,
       type: input.type?.trim() || undefined,
       note: input.note?.trim(),
+      company: input.company !== undefined ? input.company || null : undefined,
     },
   });
   revalidatePath("/vask");

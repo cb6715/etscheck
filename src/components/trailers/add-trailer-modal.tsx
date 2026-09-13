@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Modal, Field, inputClass, Button } from "@/components/ui/primitives";
 import { createTrailer } from "@/lib/actions/trailers";
+import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 
 export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [pending, startTransition] = useTransition();
@@ -10,6 +11,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
   const [licensePlate, setLicensePlate] = useState("");
   const [type, setType] = useState("");
   const [note, setNote] = useState("");
+  const [company, setCompany] = useState<WashCompany | "">("");
   const [error, setError] = useState("");
 
   function reset() {
@@ -17,6 +19,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
     setLicensePlate("");
     setType("");
     setNote("");
+    setCompany("");
     setError("");
   }
 
@@ -27,7 +30,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
     }
     startTransition(async () => {
       try {
-        await createTrailer({ number, licensePlate, type, note });
+        await createTrailer({ number, licensePlate, type, note, company });
         reset();
         onClose();
       } catch (e) {
@@ -53,6 +56,24 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
           placeholder="F.eks. 102"
           autoFocus
         />
+      </Field>
+      <Field label="Firma">
+        <div className="flex gap-2">
+          {WASH_COMPANIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCompany((prev) => (prev === c ? "" : c))}
+              className={`flex-1 rounded-xl border-2 py-3 text-sm font-bold transition ${
+                company === c
+                  ? "border-accent bg-[var(--accent-a10)] text-accent"
+                  : "border-border text-muted hover:bg-surface-2"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
       </Field>
       <Field label="Nummerplade">
         <input

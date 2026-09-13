@@ -9,10 +9,12 @@ import { addTrailerNote } from "@/lib/actions/trailers";
 export function TrailerActions({
   trailerId,
   trailerNumber,
+  company,
 }: {
   trailerId: string;
   trailerNumber: string;
   note: string | null;
+  company: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [noteOpen, setNoteOpen] = useState(false);
@@ -61,6 +63,7 @@ export function TrailerActions({
         onClose={() => setWashModalOpen(false)}
         trailerId={trailerId}
         trailerNumber={trailerNumber}
+        defaultCompany={company}
       />
     </div>
   );

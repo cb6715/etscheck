@@ -11,19 +11,23 @@ export function MarkWashedModal({
   onClose,
   trailerId,
   trailerNumber,
+  defaultCompany,
 }: {
   open: boolean;
   onClose: () => void;
   trailerId: string;
   trailerNumber: string;
+  defaultCompany?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
-  const [company, setCompany] = useState<WashCompany | "">("");
+  const [company, setCompany] = useState<WashCompany | "">(
+    defaultCompany === "DFDS" || defaultCompany === "DSV" ? defaultCompany : ""
+  );
   const [plombeNumber, setPlombeNumber] = useState("");
   const [error, setError] = useState("");
 
   function reset() {
-    setCompany("");
+    setCompany(defaultCompany === "DFDS" || defaultCompany === "DSV" ? defaultCompany : "");
     setPlombeNumber("");
     setError("");
   }
