@@ -1,0 +1,316 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+
+enum Priority {
+  NORMAL
+  VIGTIG
+  HASTER
+}
+
+enum RecurrenceType {
+  DAGLIGT
+  HVERDAGE
+  UGEDAGE
+  UGENTLIGT
+  HVER_2_UGE
+  MAANEDLIGT
+  DATO
+}
+
+enum TrailerStatus {
+  MANGLER
+  I_GANG
+  VASKET
+  AFVENTER
+  PROBLEM
+}
+
+enum NotificationType {
+  OPGAVE
+  TRAILER
+  DRIVE_IN
+  PROBLEM
+  SYSTEM
+}
+
+enum NoteTargetType {
+  TASK
+  TRAILER
+  CUSTOMER
+  GENERAL
+}
+
+// ─────────────────────────────────────────────────────────────
+// CORE
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      String   @default("MEDARBEJDER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks         Task[]
+  templates     TaskTemplate[]
+  trailerWashes TrailerWash[]
+  driveInVisits DriveInVisit[]
+  notes         Note[]
+  notifications Notification[]
+  categories    Category[]
+  dailyActivity DailyActivity[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  icon      String   @default("📦")
+  color     String   @default("#64748b")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  tasks     Task[]
+  templates TaskTemplate[]
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// TASKS
+// ─────────────────────────────────────────────────────────────
+
+model TaskTemplate {
+  id             String         @id @default(cuid())
+  title          String
+  description    String?
+  priority       Priority       @default(NORMAL)
+  recurrenceType RecurrenceType
+  weekdays       Int[]          @default([]) // 0=søn..6=lør, for UGEDAGE/HVERDAGE
+  dayOfMonth     Int?
+  specificDate   DateTime?
+  intervalWeeks  Int?           @default(1) // for HVER_2_UGE
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  checklistItems TaskTemplateChecklistItem[]
+  generatedTasks Task[]
+
+  @@index([userId])
+}
+
+model TaskTemplateChecklistItem {
+  id         String       @id @default(cuid())
+  title      String
+  order      Int          @default(0)
+  templateId String
+  template   TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  priority    Priority  @default(NORMAL)
+  order       Int       @default(0)
+  dueDate     DateTime?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  startedAt   DateTime?
+  scheduledFor DateTime @default(now()) // the day this task belongs to
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  templateId String?
+  template   TaskTemplate? @relation(fields: [templateId], references: [id])
+
+  checklistItems TaskChecklistItem[]
+  notes          Note[]
+
+  @@index([userId, scheduledFor])
+  @@index([templateId])
+}
+
+model TaskChecklistItem {
+  id        String   @id @default(cuid())
+  title     String
+  completed Boolean  @default(false)
+  order     Int      @default(0)
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────
+// TRAILERS / VASK
+// ─────────────────────────────────────────────────────────────
+
+model Trailer {
+  id           String        @id @default(cuid())
+  number       String        @unique
+  licensePlate String?
+  type         String?
+  note         String?
+  status       TrailerStatus @default(MANGLER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+
+  washes TrailerWash[]
+  notes  Note[]
+
+  @@index([status])
+}
+
+model TrailerWash {
+  id        String   @id @default(cuid())
+  washedAt  DateTime @default(now())
+  note      String?
+  createdAt DateTime @default(now())
+
+  trailerId String
+  trailer   Trailer @relation(fields: [trailerId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([trailerId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// DRIVE-IN / KUNDER
+// ─────────────────────────────────────────────────────────────
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  customers DriveInCustomer[]
+  visits    DriveInVisit[]
+}
+
+model DriveInCustomer {
+  id                 String   @id @default(cuid())
+  licensePlate       String   @unique // normalized, e.g. AB12345
+  licensePlateDisplay String  // pretty format, e.g. AB 12 345
+  createdAt          DateTime @default(now())
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  visits DriveInVisit[]
+  notes  Note[]
+
+  @@index([licensePlate])
+}
+
+model DriveInVisit {
+  id           String   @id @default(cuid())
+  refNumber    String?
+  visitType    String?
+  service      String?
+  note         String?
+  visitedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  customerId String
+  customer   DriveInCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([customerId])
+  @@index([visitedAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOTES / PROBLEMS
+// ─────────────────────────────────────────────────────────────
+
+model Note {
+  id         String         @id @default(cuid())
+  text       String
+  targetType NoteTargetType @default(GENERAL)
+  isProblem  Boolean        @default(false)
+  resolved   Boolean        @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id])
+
+  trailerId String?
+  trailer   Trailer? @relation(fields: [trailerId], references: [id])
+
+  customerId String?
+  customer   DriveInCustomer? @relation(fields: [customerId], references: [id])
+
+  @@index([isProblem, resolved])
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOTIFICATIONS / ACTIVITY
+// ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  message   String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId, read])
+}
+
+model DailyActivity {
+  id     String   @id @default(cuid())
+  date   DateTime // truncated to day
+  summary Json     // { tasksCompleted, tasksTotal, washes, driveIns, problems }
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+}
