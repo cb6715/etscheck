@@ -207,6 +207,12 @@ model QuantityLogEntry {
   note      String?
   createdAt DateTime @default(now())
 
+  // Optional per-unit registration detail (e.g. a single "vask fra haven"):
+  // which trailer, which company, and its seal/plombe number (DFDS only).
+  trailerNumber String?
+  company       String?
+  plombeNumber  String?
+
   taskId String
   task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
