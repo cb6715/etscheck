@@ -80,7 +80,7 @@ export function QuantityTaskCard({ task }: { task: TaskWithRelations }) {
           <button
             onClick={handlePlusClick}
             disabled={pending || done >= total}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/15 text-accent transition hover:bg-accent/25 disabled:opacity-30"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent-a15)] text-accent transition hover:bg-[var(--accent-a25)] disabled:opacity-30"
           >
             <Plus size={14} />
           </button>

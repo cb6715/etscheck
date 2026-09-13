@@ -76,7 +76,7 @@ export function WashRegisterModal({
               onClick={() => setCompany(c)}
               className={`flex-1 rounded-xl border-2 py-3 text-sm font-bold transition ${
                 company === c
-                  ? "border-accent bg-accent/10 text-accent"
+                  ? "border-accent bg-[var(--accent-a10)] text-accent"
                   : "border-border text-muted hover:bg-surface-2"
               }`}
             >

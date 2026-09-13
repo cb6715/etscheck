@@ -39,7 +39,7 @@ export default async function TrailerDetailPage({
       </header>
 
       {openProblems.length > 0 && (
-        <Card className="border-danger/40 bg-danger-bg/40 p-4">
+        <Card className="border-[var(--danger-a40)] bg-[var(--danger-a40)] p-4">
           <p className="mb-1 font-bold text-danger">⚠️ Åbne problemer</p>
           {openProblems.map((p) => (
             <p key={p.id} className="text-sm">{p.text}</p>

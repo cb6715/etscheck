@@ -55,7 +55,7 @@ export function NoterPageClient({ notes }: { notes: NoteWithRelations[] }) {
           </h2>
           <div className="space-y-2">
             {openProblems.map((n) => (
-              <Card key={n.id} className="border-danger/40 bg-danger-bg/30 p-4">
+              <Card key={n.id} className="border-[var(--danger-a40)] bg-[var(--danger-a30)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-semibold">{n.text}</p>
@@ -66,7 +66,7 @@ export function NoterPageClient({ notes }: { notes: NoteWithRelations[] }) {
                   </div>
                   <button
                     onClick={() => startTransition(() => resolveProblem(n.id))}
-                    className="flex shrink-0 items-center gap-1 rounded-lg bg-success/15 px-3 py-1.5 text-xs font-bold text-success hover:bg-success/25"
+                    className="flex shrink-0 items-center gap-1 rounded-lg bg-[var(--success-a15)] px-3 py-1.5 text-xs font-bold text-success hover:bg-[var(--success-a25)]"
                   >
                     <Check size={14} /> Løst
                   </button>

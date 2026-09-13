@@ -24,7 +24,7 @@ export function ConfirmationCard({
     .filter((c): c is NonNullable<typeof c> => !!c);
 
   return (
-    <Card className="border-accent/40 bg-accent/5 p-4">
+    <Card className="border-[var(--accent-a40)] bg-[var(--accent-a05)] p-4">
       <p className="mb-3 text-sm font-bold text-accent">Jeg tror, du mener:</p>
       <div className="space-y-2">
         {catList.map((c) => (

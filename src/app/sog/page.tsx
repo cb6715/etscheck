@@ -64,7 +64,7 @@ export default function SearchPage() {
         <ResultSection title="Kunder / nummerplader">
           {results.customers.map((c) => (
             <Link key={c.id} href={`/drive-in/kunde/${c.licensePlate}`}>
-              <Card className="p-4 transition hover:border-accent/40">
+              <Card className="p-4 transition hover:border-[var(--accent-a40)]">
                 <p className="font-mono font-bold">{c.licensePlateDisplay}</p>
                 <p className="text-sm text-muted">
                   {c.company?.name ?? "Uden firma"}
@@ -80,7 +80,7 @@ export default function SearchPage() {
         <ResultSection title="Firmaer">
           {results.companies.map((c) => (
             <Link key={c.id} href={`/drive-in/firma/${c.id}`}>
-              <Card className="flex items-center justify-between p-4 transition hover:border-accent/40">
+              <Card className="flex items-center justify-between p-4 transition hover:border-[var(--accent-a40)]">
                 <p className="font-bold">{c.name}</p>
                 <Badge>{c._count.visits} besøg</Badge>
               </Card>
@@ -93,7 +93,7 @@ export default function SearchPage() {
         <ResultSection title="Trailere">
           {results.trailers.map((t) => (
             <Link key={t.id} href={`/vask/${t.id}`}>
-              <Card className="flex items-center justify-between p-4 transition hover:border-accent/40">
+              <Card className="flex items-center justify-between p-4 transition hover:border-[var(--accent-a40)]">
                 <p className="font-bold">Trailer #{t.number}</p>
                 <TrailerStatusBadge status={t.status} />
               </Card>

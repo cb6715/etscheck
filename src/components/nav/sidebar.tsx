@@ -68,7 +68,7 @@ function SideLink({
       href={item.href}
       className={clsx(
         "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-        active ? "bg-accent/15 text-accent" : "text-muted hover:bg-surface-2 hover:text-foreground"
+        active ? "bg-[var(--accent-a15)] text-accent" : "text-muted hover:bg-surface-2 hover:text-foreground"
       )}
     >
       <Icon size={19} strokeWidth={active ? 2.5 : 2} />

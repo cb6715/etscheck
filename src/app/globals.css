@@ -19,6 +19,25 @@
   --danger-bg: #fee2e2;
   --info: #2563eb;
   --info-bg: #dbeafe;
+
+  /*
+   * Pre-mixed transparent tints as plain rgba() — deliberately NOT using
+   * Tailwind's bg-accent/15-style opacity modifiers, which compile to
+   * color-mix() and render as near-opaque (hiding same-colored text on top)
+   * on older WebKit/Safari that only partially supports it.
+   */
+  --accent-a05: rgba(245, 158, 11, 0.05);
+  --accent-a10: rgba(245, 158, 11, 0.1);
+  --accent-a15: rgba(245, 158, 11, 0.15);
+  --accent-a20: rgba(245, 158, 11, 0.2);
+  --accent-a25: rgba(245, 158, 11, 0.25);
+  --accent-a30: rgba(245, 158, 11, 0.3);
+  --accent-a40: rgba(245, 158, 11, 0.4);
+  --accent-a50: rgba(245, 158, 11, 0.5);
+  --danger-a30: rgba(220, 38, 38, 0.3);
+  --danger-a40: rgba(220, 38, 38, 0.4);
+  --success-a15: rgba(22, 163, 74, 0.15);
+  --success-a25: rgba(22, 163, 74, 0.25);
 }
 
 @theme inline {
@@ -61,6 +80,11 @@
   --danger-bg: rgba(239, 68, 68, 0.14);
   --info: #3b82f6;
   --info-bg: rgba(59, 130, 246, 0.14);
+
+  --danger-a30: rgba(239, 68, 68, 0.3);
+  --danger-a40: rgba(239, 68, 68, 0.4);
+  --success-a15: rgba(34, 197, 94, 0.15);
+  --success-a25: rgba(34, 197, 94, 0.25);
 }
 
 * {

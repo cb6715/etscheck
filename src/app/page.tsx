@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       </header>
 
       {problems.length > 0 && (
-        <Card className="border-danger/40 bg-danger-bg/40 p-4">
+        <Card className="border-[var(--danger-a40)] bg-[var(--danger-a40)] p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 shrink-0 text-danger" size={20} />
             <div className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/drive-in">
-          <Card className="p-5 transition hover:border-accent/40">
+          <Card className="p-5 transition hover:border-[var(--accent-a40)]">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="flex items-center gap-2 font-bold">
                 <Car size={18} /> Drive-in
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
         </Link>
 
         <Link href="/vask">
-          <Card className="p-5 transition hover:border-accent/40">
+          <Card className="p-5 transition hover:border-[var(--accent-a40)]">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="flex items-center gap-2 font-bold">
                 <Truck size={18} /> Vaskeplan

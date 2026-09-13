@@ -47,7 +47,7 @@ export default async function CompanyDetailPage({
           <div className="space-y-2">
             {company.visits.map((v) => (
               <Link key={v.id} href={`/drive-in/kunde/${v.customer.licensePlate}`}>
-                <Card className="p-4 transition hover:border-accent/40">
+                <Card className="p-4 transition hover:border-[var(--accent-a40)]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold">{v.customer.licensePlateDisplay}</span>
                     <span className="text-sm text-muted">

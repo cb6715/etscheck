@@ -41,7 +41,7 @@ export function DriveInPageClient({ visits }: { visits: VisitWithRelations[] }) 
 
       <button
         onClick={() => setModalOpen(true)}
-        className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 p-6 text-accent transition hover:bg-accent/10 active:scale-[0.99]"
+        className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[var(--accent-a40)] bg-[var(--accent-a05)] p-6 text-accent transition hover:bg-[var(--accent-a10)] active:scale-[0.99]"
       >
         <Car size={28} />
         <span className="text-lg font-bold">Registrer drive-in kunde</span>
@@ -55,7 +55,7 @@ export function DriveInPageClient({ visits }: { visits: VisitWithRelations[] }) 
           <div className="space-y-2">
             {visits.map((v) => (
               <Link key={v.id} href={`/drive-in/kunde/${v.customer.licensePlate}`}>
-                <Card className="flex items-center justify-between p-4 transition hover:border-accent/40">
+                <Card className="flex items-center justify-between p-4 transition hover:border-[var(--accent-a40)]">
                   <div className="min-w-0">
                     <p className="font-mono text-base font-bold tracking-wide">
                       {v.customer.licensePlateDisplay}

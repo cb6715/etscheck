@@ -167,7 +167,7 @@ function ChoiceButton({
     <button
       onClick={onClick}
       className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
-        active ? "border-accent bg-accent/10 text-accent" : "border-border text-muted hover:bg-surface-2"
+        active ? "border-accent bg-[var(--accent-a10)] text-accent" : "border-border text-muted hover:bg-surface-2"
       }`}
     >
       {icon}

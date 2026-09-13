@@ -85,7 +85,7 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
         <button
           onClick={() => startTransition(() => updateTrailerStatus(trailer.id, "VASKET"))}
           disabled={pending}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-success/15 py-2.5 text-sm font-bold text-success transition hover:bg-success/25"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--success-a15)] py-2.5 text-sm font-bold text-success transition hover:bg-[var(--success-a25)]"
         >
           <Droplets size={16} /> Marker som vasket
         </button>

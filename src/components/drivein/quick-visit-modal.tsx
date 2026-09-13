@@ -105,7 +105,7 @@ export function QuickVisitModal({ open, onClose }: { open: boolean; onClose: () 
           {match && (
             <button
               onClick={applyMatch}
-              className="mb-3 w-full rounded-xl border border-accent/40 bg-accent/10 p-3 text-left text-sm transition hover:bg-accent/15"
+              className="mb-3 w-full rounded-xl border border-[var(--accent-a40)] bg-[var(--accent-a10)] p-3 text-left text-sm transition hover:bg-[var(--accent-a15)]"
             >
               <p className="font-semibold text-accent">
                 Kendt kunde: {formatPlate(match.licensePlate)}

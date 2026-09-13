@@ -143,7 +143,7 @@ export function SettingsPageClient({
                 key={i}
                 onClick={() => setIcon(i)}
                 className={`flex h-10 w-10 items-center justify-center rounded-xl border-2 text-lg transition ${
-                  icon === i ? "border-accent bg-accent/10" : "border-border"
+                  icon === i ? "border-accent bg-[var(--accent-a10)]" : "border-border"
                 }`}
               >
                 {i}

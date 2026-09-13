@@ -19,7 +19,7 @@ export function Card({
       onClick={onClick}
       className={clsx(
         "rounded-2xl border border-border bg-surface shadow-sm",
-        onClick && "cursor-pointer transition hover:border-accent/40 active:scale-[0.99]",
+        onClick && "cursor-pointer transition hover:border-[var(--accent-a40)] active:scale-[0.99]",
         className
       )}
     >
@@ -203,4 +203,4 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full rounded-xl border border-border bg-surface-2 px-4 py-3 text-base text-foreground outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 placeholder:text-muted";
+  "w-full rounded-xl border border-border bg-surface-2 px-4 py-3 text-base text-foreground outline-none transition focus:border-accent focus:ring-2 focus:ring-[var(--accent-a20)] placeholder:text-muted";

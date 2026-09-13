@@ -21,7 +21,7 @@ export function FabMenu() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Ny registrering"
-        className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg shadow-accent/30 transition active:scale-95"
+        className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg shadow-[var(--accent-a30)] transition active:scale-95"
       >
         <Plus size={28} strokeWidth={2.5} />
       </button>
@@ -45,7 +45,7 @@ export function QuickActionSheet({ open, onClose }: { open: boolean; onClose: ()
                 onClose();
                 router.push(action.href);
               }}
-              className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-surface-2 p-4 transition hover:border-accent/50 active:scale-95"
+              className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-surface-2 p-4 transition hover:border-[var(--accent-a50)] active:scale-95"
             >
               <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${action.tone}`}>
                 <Icon size={22} />

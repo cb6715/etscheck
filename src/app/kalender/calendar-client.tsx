@@ -106,7 +106,7 @@ export function CalendarClient() {
                   isSelected
                     ? "bg-accent text-accent-foreground"
                     : isToday
-                    ? "bg-accent/15 text-accent"
+                    ? "bg-[var(--accent-a15)] text-accent"
                     : "hover:bg-surface-2"
                 )}
               >

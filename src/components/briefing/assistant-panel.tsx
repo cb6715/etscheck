@@ -70,7 +70,7 @@ export function AssistantPanel({
   return (
     <Card className="flex h-[520px] flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/15 text-accent">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent-a15)] text-accent">
           <Sparkles size={16} />
         </span>
         <div>
