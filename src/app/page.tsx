@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       </header>
 
       {problems.length > 0 && (
-        <Card className="border-[var(--danger-a40)] bg-[var(--danger-a40)] p-4">
+        <Card className="border-[var(--danger-a40)] bg-danger-bg p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 shrink-0 text-danger" size={20} />
             <div className="min-w-0 flex-1">

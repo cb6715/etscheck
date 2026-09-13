@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Droplets, AlertTriangle, MoreVertical } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
 import { TrailerStatusBadge } from "./trailer-status-badge";
+import { MarkWashedModal } from "./mark-washed-modal";
 import { updateTrailerStatus } from "@/lib/actions/trailers";
 import type { Prisma, TrailerStatus } from "@prisma/client";
 
@@ -23,10 +24,15 @@ const STATUS_OPTIONS: { value: TrailerStatus; label: string }[] = [
 export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
   const [pending, startTransition] = useTransition();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [washModalOpen, setWashModalOpen] = useState(false);
   const hasProblem = trailer.notes.length > 0;
 
   function setStatus(status: TrailerStatus) {
     setMenuOpen(false);
+    if (status === "VASKET") {
+      setWashModalOpen(true);
+      return;
+    }
     if (status === "PROBLEM") {
       const note = prompt("Beskriv problemet:");
       if (!note) return;
@@ -83,13 +89,20 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
 
       {trailer.status !== "VASKET" && (
         <button
-          onClick={() => startTransition(() => updateTrailerStatus(trailer.id, "VASKET"))}
+          onClick={() => setWashModalOpen(true)}
           disabled={pending}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--success-a15)] py-2.5 text-sm font-bold text-success transition hover:bg-[var(--success-a25)]"
         >
           <Droplets size={16} /> Marker som vasket
         </button>
       )}
+
+      <MarkWashedModal
+        open={washModalOpen}
+        onClose={() => setWashModalOpen(false)}
+        trailerId={trailer.id}
+        trailerNumber={trailer.number}
+      />
     </Card>
   );
 }

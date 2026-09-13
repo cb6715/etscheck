@@ -297,6 +297,11 @@ model TrailerWash {
   note      String?
   createdAt DateTime @default(now())
 
+  // Company that owns the trailer, and its seal/plombe number (DFDS only) —
+  // mirrors QuantityLogEntry's wash-registration fields.
+  company      String?
+  plombeNumber String?
+
   trailerId String
   trailer   Trailer @relation(fields: [trailerId], references: [id], onDelete: Cascade)
 

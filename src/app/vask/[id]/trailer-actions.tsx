@@ -3,19 +3,27 @@
 import { useState, useTransition } from "react";
 import { Droplets, StickyNote } from "lucide-react";
 import { Button, Modal, inputClass } from "@/components/ui/primitives";
-import { updateTrailerStatus, addTrailerNote } from "@/lib/actions/trailers";
+import { MarkWashedModal } from "@/components/trailers/mark-washed-modal";
+import { addTrailerNote } from "@/lib/actions/trailers";
 
-export function TrailerActions({ trailerId }: { trailerId: string; note: string | null }) {
+export function TrailerActions({
+  trailerId,
+  trailerNumber,
+}: {
+  trailerId: string;
+  trailerNumber: string;
+  note: string | null;
+}) {
   const [pending, startTransition] = useTransition();
   const [noteOpen, setNoteOpen] = useState(false);
+  const [washModalOpen, setWashModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
 
   return (
     <div className="flex gap-3">
       <Button
         className="flex flex-1 items-center justify-center gap-2"
-        onClick={() => startTransition(() => updateTrailerStatus(trailerId, "VASKET"))}
-        disabled={pending}
+        onClick={() => setWashModalOpen(true)}
       >
         <Droplets size={18} /> Marker som vasket
       </Button>
@@ -42,10 +50,18 @@ export function TrailerActions({ trailerId }: { trailerId: string; note: string 
               setNoteOpen(false);
             })
           }
+          disabled={pending}
         >
           Gem note
         </Button>
       </Modal>
+
+      <MarkWashedModal
+        open={washModalOpen}
+        onClose={() => setWashModalOpen(false)}
+        trailerId={trailerId}
+        trailerNumber={trailerNumber}
+      />
     </div>
   );
 }

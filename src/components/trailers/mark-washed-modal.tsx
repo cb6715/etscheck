@@ -3,43 +3,39 @@
 import { useState, useTransition } from "react";
 import { Droplets } from "lucide-react";
 import { Modal, Field, inputClass, Button } from "@/components/ui/primitives";
-import { registerWashUnit } from "@/lib/actions/briefing";
+import { markTrailerWashed } from "@/lib/actions/trailers";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 
-export function WashRegisterModal({
+export function MarkWashedModal({
   open,
   onClose,
-  taskId,
+  trailerId,
+  trailerNumber,
 }: {
   open: boolean;
   onClose: () => void;
-  taskId: string;
+  trailerId: string;
+  trailerNumber: string;
 }) {
   const [pending, startTransition] = useTransition();
-  const [trailerNumber, setTrailerNumber] = useState("");
   const [company, setCompany] = useState<WashCompany | "">("");
   const [plombeNumber, setPlombeNumber] = useState("");
   const [error, setError] = useState("");
 
   function reset() {
-    setTrailerNumber("");
     setCompany("");
     setPlombeNumber("");
     setError("");
   }
 
   function submit() {
-    if (!trailerNumber.trim()) {
-      setError("Trailernummer mangler.");
-      return;
-    }
     if (!company) {
       setError("Vælg firma.");
       return;
     }
     startTransition(async () => {
       try {
-        await registerWashUnit(taskId, { trailerNumber, company, plombeNumber });
+        await markTrailerWashed(trailerId, { company, plombeNumber });
         reset();
         onClose();
       } catch (e) {
@@ -55,18 +51,8 @@ export function WashRegisterModal({
         reset();
         onClose();
       }}
-      title="Registrer vask"
+      title={`Marker trailer #${trailerNumber} som vasket`}
     >
-      <Field label="Trailer nr." required>
-        <input
-          className={inputClass}
-          value={trailerNumber}
-          onChange={(e) => setTrailerNumber(e.target.value)}
-          placeholder="F.eks. 4521"
-          autoFocus
-        />
-      </Field>
-
       <Field label="Firma" required>
         <div className="flex gap-2">
           {WASH_COMPANIES.map((c) => (
@@ -93,6 +79,7 @@ export function WashRegisterModal({
             value={plombeNumber}
             onChange={(e) => setPlombeNumber(e.target.value)}
             placeholder="Valgfri"
+            autoFocus
           />
         </Field>
       )}
@@ -106,7 +93,7 @@ export function WashRegisterModal({
         disabled={pending}
         className="flex items-center justify-center gap-2"
       >
-        <Droplets size={18} /> {pending ? "Gemmer..." : "Registrer vask"}
+        <Droplets size={18} /> {pending ? "Gemmer..." : "Marker som vasket"}
       </Button>
     </Modal>
   );

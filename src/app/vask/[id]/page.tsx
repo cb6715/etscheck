@@ -39,7 +39,7 @@ export default async function TrailerDetailPage({
       </header>
 
       {openProblems.length > 0 && (
-        <Card className="border-[var(--danger-a40)] bg-[var(--danger-a40)] p-4">
+        <Card className="border-[var(--danger-a40)] bg-danger-bg p-4">
           <p className="mb-1 font-bold text-danger">⚠️ Åbne problemer</p>
           {openProblems.map((p) => (
             <p key={p.id} className="text-sm">{p.text}</p>
@@ -47,7 +47,7 @@ export default async function TrailerDetailPage({
         </Card>
       )}
 
-      <TrailerActions trailerId={trailer.id} note={trailer.note} />
+      <TrailerActions trailerId={trailer.id} trailerNumber={trailer.number} note={trailer.note} />
 
       <Card className="p-5">
         <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-muted">Seneste vask</h2>
@@ -71,9 +71,21 @@ export default async function TrailerDetailPage({
           <Card className="divide-y divide-border">
             {trailer.washes.map((w) => (
               <div key={w.id} className="flex items-center justify-between p-4">
-                <span className="font-medium">
-                  {formatShortDate(new Date(w.washedAt))} — Vasket
-                </span>
+                <div>
+                  <span className="font-medium">
+                    {formatShortDate(new Date(w.washedAt))} — Vasket
+                  </span>
+                  {(w.company || w.plombeNumber) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {w.company && (
+                        <Badge tone={w.company === "DFDS" ? "info" : "default"}>{w.company}</Badge>
+                      )}
+                      {w.plombeNumber && (
+                        <span className="text-xs text-muted">Plombe {w.plombeNumber}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <span className="text-sm text-muted">{formatTime(new Date(w.washedAt))}</span>
               </div>
             ))}

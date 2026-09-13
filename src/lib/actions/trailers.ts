@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/current-user";
 import { TrailerStatus } from "@prisma/client";
+import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 
 export async function getTrailers() {
   return prisma.trailer.findMany({
@@ -48,6 +49,36 @@ export async function createTrailer(input: CreateTrailerInput) {
   revalidatePath("/vask");
   revalidatePath("/");
   return trailer;
+}
+
+export type MarkWashedInput = {
+  company: WashCompany;
+  plombeNumber?: string;
+  note?: string;
+};
+
+export async function markTrailerWashed(trailerId: string, input: MarkWashedInput) {
+  const userId = await getCurrentUserId();
+  if (!WASH_COMPANIES.includes(input.company)) throw new Error("Ugyldigt firma");
+
+  await prisma.trailer.update({
+    where: { id: trailerId },
+    data: { status: TrailerStatus.VASKET },
+  });
+  await prisma.trailerWash.create({
+    data: {
+      trailerId,
+      userId,
+      note: input.note?.trim() || null,
+      company: input.company,
+      // Only DFDS trailers carry a seal/plombe number.
+      plombeNumber: input.company === "DFDS" ? input.plombeNumber?.trim() || null : null,
+    },
+  });
+
+  revalidatePath("/vask");
+  revalidatePath(`/vask/${trailerId}`);
+  revalidatePath("/");
 }
 
 export async function updateTrailerStatus(trailerId: string, status: TrailerStatus, note?: string) {

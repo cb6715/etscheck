@@ -10,7 +10,6 @@ import { findCategoryByKeyword } from "@/lib/ai/category-meta";
 import { parseBriefingMessage } from "@/lib/ai/parse-briefing";
 import { simulateActions, buildAssistantReply } from "@/lib/ai/simulate";
 import type { BriefingAction, ExistingItemContext, ShiftValue } from "@/lib/ai/briefing-types";
-import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 import { Prisma } from "@prisma/client";
 
 type PendingClarification = {
@@ -454,48 +453,6 @@ export async function adjustQuantityDone(taskId: string, delta: number, shift: S
   revalidatePath("/planlaegning");
 }
 
-export type RegisterWashInput = {
-  trailerNumber: string;
-  company: WashCompany;
-  plombeNumber?: string;
-  shift?: ShiftValue;
-};
-
-export async function registerWashUnit(taskId: string, input: RegisterWashInput) {
-  const userId = await getCurrentUserId();
-  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
-  if (!task) throw new Error("Opgave ikke fundet");
-  if (!input.trailerNumber.trim()) throw new Error("Trailernummer mangler");
-  if (!WASH_COMPANIES.includes(input.company)) throw new Error("Ugyldigt firma");
-
-  const total = task.quantityTotal ?? 0;
-  const before = task.quantityDone ?? 0;
-  const after = Math.max(0, Math.min(total || before + 1, before + 1));
-
-  await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      quantityDone: after,
-      completed: after >= total && total > 0,
-      completedAt: after >= total && total > 0 ? new Date() : null,
-    },
-  });
-  await prisma.quantityLogEntry.create({
-    data: {
-      taskId,
-      userId,
-      delta: after - before,
-      shift: input.shift ?? "DAGHOLD",
-      trailerNumber: input.trailerNumber.trim(),
-      company: input.company,
-      // Only DFDS trailers carry a seal/plombe number.
-      plombeNumber: input.company === "DFDS" ? input.plombeNumber?.trim() || null : null,
-    },
-  });
-
-  revalidatePath("/");
-  revalidatePath("/planlaegning");
-}
 
 export type EndOfDaySummary = {
   plannedCount: number;
