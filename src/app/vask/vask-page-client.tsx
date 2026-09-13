@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Plus, Truck } from "lucide-react";
 import { Button, EmptyState } from "@/components/ui/primitives";
 import { TrailerCard } from "@/components/trailers/trailer-card";
 import { AddTrailerModal } from "@/components/trailers/add-trailer-modal";
+import { WashSummaryModal, WashSummaryButton, type WashSummaryRow } from "@/components/trailers/wash-summary-modal";
 import type { Prisma } from "@prisma/client";
 
 type TrailerWithRelations = Prisma.TrailerGetPayload<{
@@ -16,6 +17,7 @@ export function VaskPageClient({ trailers }: { trailers: TrailerWithRelations[] 
   const searchParams = useSearchParams();
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -26,6 +28,30 @@ export function VaskPageClient({ trailers }: { trailers: TrailerWithRelations[] 
 
   const missing = trailers.filter((t) => t.status !== "VASKET").length;
   const washed = trailers.length - missing;
+
+  const washedRows: WashSummaryRow[] = trailers
+    .filter((t) => t.status === "VASKET")
+    .map((t) => {
+      const lastWash = t.washes[0];
+      return {
+        id: t.id,
+        company: lastWash?.company ?? t.company,
+        number: t.number,
+        licensePlate: t.licensePlate,
+        plombeNumber: lastWash?.plombeNumber ?? null,
+      };
+    });
+
+  // Auto-show the copy-ready list the moment the last trailer of the day
+  // gets marked as washed. A manual "Vaskeliste" button covers reopening it
+  // later (e.g. after a page reload, when this transition can't be observed).
+  const prevMissing = useRef(missing);
+  useEffect(() => {
+    if (prevMissing.current > 0 && missing === 0 && washedRows.length > 0) {
+      setSummaryOpen(true);
+    }
+    prevMissing.current = missing;
+  }, [missing, washedRows.length]);
 
   return (
     <div className="space-y-6 pb-4">
@@ -38,9 +64,12 @@ export function VaskPageClient({ trailers }: { trailers: TrailerWithRelations[] 
             {washed} vasket · {missing} mangler
           </p>
         </div>
-        <Button onClick={() => setModalOpen(true)} className="flex items-center gap-1.5">
-          <Plus size={18} strokeWidth={3} /> Tilføj trailer
-        </Button>
+        <div className="flex items-center gap-2">
+          {washed > 0 && <WashSummaryButton onClick={() => setSummaryOpen(true)} count={washed} />}
+          <Button onClick={() => setModalOpen(true)} className="flex items-center gap-1.5">
+            <Plus size={18} strokeWidth={3} /> Tilføj trailer
+          </Button>
+        </div>
       </header>
 
       {trailers.length === 0 ? (
@@ -59,6 +88,7 @@ export function VaskPageClient({ trailers }: { trailers: TrailerWithRelations[] 
       )}
 
       <AddTrailerModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <WashSummaryModal open={summaryOpen} onClose={() => setSummaryOpen(false)} rows={washedRows} />
     </div>
   );
 }
