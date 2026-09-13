@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { History, Plus, Trash2 } from "lucide-react";
+import { History, Plus, Trash2, Zap } from "lucide-react";
 import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
-import { logHistoricalWeek, deleteHistoricalWeek, type HistoricalWeek } from "@/lib/actions/worksessions";
+import {
+  logHistoricalWeek,
+  deleteHistoricalWeek,
+  seedKnownHistoricalWeeks,
+  type HistoricalWeek,
+} from "@/lib/actions/worksessions";
 import { formatShortDate } from "@/lib/date";
 
 function formatKr(n: number): string {
@@ -25,6 +30,20 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
   const [weekOf, setWeekOf] = useState(dateToInputValue(new Date()));
   const [hours, setHours] = useState("");
   const [error, setError] = useState("");
+  const [seedResult, setSeedResult] = useState("");
+
+  function seed() {
+    setError("");
+    setSeedResult("");
+    startTransition(async () => {
+      const { inserted, skipped } = await seedKnownHistoricalWeeks();
+      setSeedResult(
+        inserted > 0
+          ? `Tilføjet ${inserted} uge(r)${skipped > 0 ? ` (${skipped} var allerede der)` : ""}.`
+          : "Alle 3 uger var allerede registreret."
+      );
+    });
+  }
 
   function submit() {
     setError("");
@@ -54,6 +73,14 @@ export function HistoricalWeeksForm({ weeks }: { weeks: HistoricalWeek[] }) {
         denne lønperiodes overtid og skattefradrag. Antager kun dagtimer (intet nattillæg) — brug tjek ind/ud til
         fremtidige uger for præcis beregning.
       </p>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--accent-a30)] bg-[var(--accent-a05)] p-3">
+        <Button size="sm" onClick={seed} disabled={pending} className="flex items-center gap-1.5">
+          <Zap size={14} /> Tilføj mine 3 uger (24/8: 42,5t · 31/8: 36,5t · 7/9: 46t)
+        </Button>
+        {seedResult && <span className="text-xs font-medium text-success">{seedResult}</span>}
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Uge (vælg en dag i ugen)">
           <input className={inputClass} type="date" value={weekOf} onChange={(e) => setWeekOf(e.target.value)} />

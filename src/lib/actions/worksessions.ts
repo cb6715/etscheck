@@ -149,15 +149,13 @@ export async function getHistoricalWeeks(): Promise<HistoricalWeek[]> {
   }));
 }
 
-export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<void> {
-  if (!(hours > 0)) throw new Error("Antal timer skal være positivt.");
-  const userId = await getCurrentUserId();
+async function insertManualWeek(userId: string, weekOf: Date, hours: number): Promise<"inserted" | "exists"> {
   const { start, end } = getWeekRange(weekOf);
 
   const existing = await prisma.workSession.findFirst({
     where: { userId, checkInAt: { gte: start, lte: end } },
   });
-  if (existing) throw new Error("Der er allerede registreret arbejde i denne uge.");
+  if (existing) return "exists";
 
   const config = await getOrCreateWageSettings(userId);
   const [weekSecondsBefore, periodGrossBefore] = await Promise.all([
@@ -178,6 +176,14 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<vo
       isManualEntry: true,
     },
   });
+  return "inserted";
+}
+
+export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<void> {
+  if (!(hours > 0)) throw new Error("Antal timer skal være positivt.");
+  const userId = await getCurrentUserId();
+  const result = await insertManualWeek(userId, weekOf, hours);
+  if (result === "exists") throw new Error("Der er allerede registreret arbejde i denne uge.");
   revalidatePath("/indstillinger");
   revalidatePath("/");
 }
@@ -187,4 +193,28 @@ export async function deleteHistoricalWeek(id: string): Promise<void> {
   await prisma.workSession.deleteMany({ where: { id, userId, isManualEntry: true } });
   revalidatePath("/indstillinger");
   revalidatePath("/");
+}
+
+// One-off helper for the 3 weeks worked before tjek-ind/ud existed (24/8:
+// 42.5t, 31/8: 36.5t, 7/9: 46t) — inserted in order so each week's gross
+// correctly builds on the ones before it. Safe to call more than once:
+// any week that's already logged is skipped rather than duplicated.
+const KNOWN_STARTUP_WEEKS: { weekOf: Date; hours: number }[] = [
+  { weekOf: new Date(2026, 7, 24), hours: 42.5 },
+  { weekOf: new Date(2026, 7, 31), hours: 36.5 },
+  { weekOf: new Date(2026, 8, 7), hours: 46 },
+];
+
+export async function seedKnownHistoricalWeeks(): Promise<{ inserted: number; skipped: number }> {
+  const userId = await getCurrentUserId();
+  let inserted = 0;
+  let skipped = 0;
+  for (const w of KNOWN_STARTUP_WEEKS) {
+    const result = await insertManualWeek(userId, w.weekOf, w.hours);
+    if (result === "inserted") inserted++;
+    else skipped++;
+  }
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
+  return { inserted, skipped };
 }
