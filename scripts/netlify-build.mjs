@@ -3,12 +3,12 @@ import { execSync } from "node:child_process";
 
 const PLACEHOLDER_DATABASE_URL = "postgresql://placeholder:placeholder@localhost:5432/placeholder";
 
-const dbUrl =
-  process.env.DATABASE_URL ||
-  process.env.NETLIFY_DATABASE_URL ||
-  process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
-  process.env.NEON_DATABASE_URL ||
-  process.env.POSTGRES_URL;
+// Only a plain DATABASE_URL (your own Postgres) is usable here at build time.
+// Netlify DB (Neon) does not expose a build-time environment variable at all —
+// its schema is instead applied by Netlify's own migration runner, reading
+// SQL files from netlify/database/migrations/ (mirrored from prisma/migrations/
+// — see that folder for the source of truth).
+const dbUrl = process.env.DATABASE_URL;
 
 function run(cmd, extraEnv = {}) {
   console.log(`\n$ ${cmd}`);
@@ -21,15 +21,14 @@ function run(cmd, extraEnv = {}) {
 run("npx prisma generate", { DATABASE_URL: dbUrl || PLACEHOLDER_DATABASE_URL });
 
 if (dbUrl) {
-  console.log("\nDatabase URL found — applying migrations (prisma migrate deploy).");
+  console.log("\nDATABASE_URL found — applying migrations (prisma migrate deploy).");
   run("npx prisma migrate deploy", { DATABASE_URL: dbUrl });
 } else {
-  console.warn(
-    "\n⚠️  No DATABASE_URL / NETLIFY_DATABASE_URL found at build time — skipping migrations.\n" +
-      "   If you just enabled Netlify DB, its connection string usually only becomes\n" +
-      "   available starting with the NEXT deploy — trigger one more deploy once this\n" +
-      "   one finishes. Otherwise, set DATABASE_URL yourself in Site configuration →\n" +
-      "   Environment variables, then redeploy.\n"
+  console.log(
+    "\nℹ️  No DATABASE_URL set at build time — skipping `prisma migrate deploy`.\n" +
+      "   This is expected when using Netlify DB: Netlify applies netlify/database/migrations/\n" +
+      "   itself as part of the deploy. If you're using your own Postgres instead, set\n" +
+      "   DATABASE_URL under Site configuration → Environment variables.\n"
   );
 }
 

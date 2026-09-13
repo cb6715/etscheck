@@ -4,17 +4,13 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-// Resolve the connection string the same way the app runtime does (see
-// src/lib/resolve-database-url.ts): plain DATABASE_URL locally, or whatever
-// Netlify's attached database (Neon extension) injects. Falls back to a
-// placeholder so `prisma generate` never fails just because no real database
-// is configured yet — only commands that actually connect (migrate deploy)
-// need a working URL, and those are skipped upstream when one isn't set.
+// Plain DATABASE_URL only: this file backs Prisma CLI commands (generate,
+// migrate dev/deploy), always invoked with an explicit DATABASE_URL by
+// scripts/netlify-build.mjs or a local .env. Falls back to a placeholder so
+// `prisma generate` never fails just because no real database is configured
+// yet — commands that actually need to connect are skipped upstream instead.
 const databaseUrl =
-  process.env.DATABASE_URL ||
-  process.env.NETLIFY_DATABASE_URL ||
-  process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
-  "postgresql://placeholder:placeholder@localhost:5432/placeholder";
+  process.env.DATABASE_URL || "postgresql://placeholder:placeholder@localhost:5432/placeholder";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
