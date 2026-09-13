@@ -46,6 +46,17 @@ Store, tvetydige beskeder (typisk den første morgenbriefing) vises som en bekr�
 
 **Afslut arbejdsdag** (🌙-knappen på `/planlaegning`) viser planlagt vs. færdigt for alt i dag (både mængde-opgaver og almindelige opgaver), og lader dig pr. restopgave vælge "Flyt til i morgen", "Ikke nødvendig" eller "Afslut alligevel".
 
+## Deploy til Netlify
+
+Build-kommandoen (`npm run netlify:build`, sat i `netlify.toml`) kører `prisma generate` → `prisma migrate deploy` (kun hvis en database-URL er tilgængelig) → `next build`. Databasen findes automatisk via enten `DATABASE_URL` eller Netlify DB's `NETLIFY_DATABASE_URL` (se `src/lib/resolve-database-url.ts`) — intet at rette i koden uanset hvilken løsning der bruges.
+
+1. **Forbind repoet**: i Netlify → *Add new site → Import an existing project → GitHub* → vælg `cb6715/etscheck`, branch `main`. Netlify genkender Next.js automatisk.
+2. **Database**:
+   - Nemmest: aktivér *Netlify DB* (Neon) for sitet under *Extensions* — den bliver auto-provisioneret på første deploy, og build-scriptet finder den selv.
+   - Alternativt: sæt din egen `DATABASE_URL` under *Site configuration → Environment variables*.
+3. Første deploy uden database klar bygger stadig igennem (migrationer springes bare over med en advarsel i build-loggen) — kør blot en ny deploy, når databasen er tilgængelig, så migrationerne slår igennem.
+4. Valgfrit: sæt `ANTHROPIC_API_KEY` som miljøvariabel for at give Godmorgen-briefingen rigtig Claude-baseret sprogforståelse.
+
 ## Arkitektur
 
 Databasen er designet til at kunne udvides med flere medarbejdere, roller og arbejdssteder uden at ændre grundstrukturen (se `prisma/schema.prisma`).

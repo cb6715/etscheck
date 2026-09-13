@@ -8,12 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "netlify:build": "node scripts/netlify-build.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@netlify/database": "^2.0.1",
     "@prisma/client": "^6.19.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
