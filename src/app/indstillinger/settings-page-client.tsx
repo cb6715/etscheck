@@ -6,9 +6,11 @@ import { Card, Button, Badge, Modal, Field, inputClass, EmptyState } from "@/com
 import { createCategory, deleteCategory } from "@/lib/actions/misc";
 import { toggleTemplateActive, deleteTemplate } from "@/lib/actions/tasks";
 import { WageSettingsForm } from "@/components/settings/wage-settings-form";
+import { HistoricalWeeksForm } from "@/components/settings/historical-weeks-form";
 import { RECURRENCE_LABELS } from "@/lib/recurrence";
 import { weekdayShort } from "@/lib/date";
 import type { WageConfig } from "@/lib/wage/engine";
+import type { HistoricalWeek } from "@/lib/actions/worksessions";
 import type { Prisma } from "@prisma/client";
 
 type Category = Prisma.CategoryGetPayload<object>;
@@ -23,10 +25,12 @@ export function SettingsPageClient({
   categories,
   templates,
   wageSettings,
+  historicalWeeks,
 }: {
   categories: Category[];
   templates: TemplateWithRelations[];
   wageSettings: WageConfig;
+  historicalWeeks: HistoricalWeek[];
 }) {
   const [, startTransition] = useTransition();
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -135,6 +139,9 @@ export function SettingsPageClient({
           </h2>
         </div>
         <WageSettingsForm settings={wageSettings} />
+        <div className="mt-3">
+          <HistoricalWeeksForm weeks={historicalWeeks} />
+        </div>
       </section>
 
       <section>

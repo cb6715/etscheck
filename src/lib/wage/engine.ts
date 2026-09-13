@@ -170,6 +170,25 @@ export function computeIntervalEarnings(
   return { paidSeconds, grossAmount };
 }
 
+/**
+ * Gross pay for a week given only its total hours (no time-of-day detail),
+ * used for backfilling a week retroactively — assumes every hour is a day
+ * hour (no nattillæg), only the 37-timers overtime split is applied.
+ */
+export function computeWeekGrossFromHours(
+  hours: number,
+  priorWeekPaidSeconds: number,
+  config: WageConfig
+): IntervalEarnings {
+  const paidSeconds = Math.round(hours * 3600);
+  const thresholdSeconds = config.overtimeThresholdHours * 3600;
+  const normalSeconds = Math.max(0, Math.min(paidSeconds, thresholdSeconds - priorWeekPaidSeconds));
+  const overtimeSeconds = paidSeconds - normalSeconds;
+  const grossAmount =
+    (normalSeconds / 3600) * config.hourlyRate + (overtimeSeconds / 3600) * config.hourlyRate * (1 + config.overtimeBonusPct);
+  return { paidSeconds, grossAmount };
+}
+
 /** Absolute net kr for a given cumulative monthly gross figure. */
 export function netForCumulativeGross(cumulativeGross: number, config: WageConfig): number {
   const amBidrag = cumulativeGross * config.amBidragPct;
