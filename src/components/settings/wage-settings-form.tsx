@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Wallet } from "lucide-react";
 import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
 import { updateWageSettings } from "@/lib/actions/worksessions";
-import type { WageConfig } from "@/lib/wage/engine";
+import { lastWeekdayOfMonth, type WageConfig } from "@/lib/wage/engine";
+import { formatShortDate } from "@/lib/date";
 
 function minutesToTime(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -15,6 +16,16 @@ function minutesToTime(minutes: number): string {
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
+}
+
+function dateToInputValue(date: Date): string {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function inputValueToDate(value: string): Date {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
@@ -34,6 +45,14 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
   const [monthlyTaxDeduction, setMonthlyTaxDeduction] = useState(String(settings.monthlyTaxDeduction));
   const [amBidragPct, setAmBidragPct] = useState(String(settings.amBidragPct * 100));
   const [taxRatePct, setTaxRatePct] = useState(String(settings.taxRatePct * 100));
+  const [payPeriodStart, setPayPeriodStart] = useState(dateToInputValue(settings.payPeriodStart));
+  const [payPeriodEnd, setPayPeriodEnd] = useState(dateToInputValue(settings.payPeriodEnd));
+
+  const payoutDate = useMemo(() => {
+    const end = inputValueToDate(payPeriodEnd);
+    if (Number.isNaN(end.getTime())) return null;
+    return lastWeekdayOfMonth(end);
+  }, [payPeriodEnd]);
 
   function save() {
     setSaved(false);
@@ -50,6 +69,8 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
         amBidragPct: (Number(amBidragPct) || 0) / 100,
         taxRatePct: (Number(taxRatePct) || 0) / 100,
+        payPeriodStart: inputValueToDate(payPeriodStart),
+        payPeriodEnd: inputValueToDate(payPeriodEnd),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -114,7 +135,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         <Field label="Ulønnet pause til">
           <input className={inputClass} type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)} />
         </Field>
-        <Field label="Skattefradrag (kr/måned)">
+        <Field label="Skattefradrag (kr/lønperiode)">
           <input
             className={inputClass}
             type="number"
@@ -128,7 +149,25 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         <Field label="Skatteprocent (%)">
           <input className={inputClass} type="number" value={taxRatePct} onChange={(e) => setTaxRatePct(e.target.value)} />
         </Field>
+        <Field label="Lønperiode fra">
+          <input
+            className={inputClass}
+            type="date"
+            value={payPeriodStart}
+            onChange={(e) => setPayPeriodStart(e.target.value)}
+          />
+        </Field>
+        <Field label="Lønperiode til">
+          <input className={inputClass} type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} />
+        </Field>
       </div>
+      <p className="text-xs text-muted">
+        Skattefradraget spores hen over denne periode, ikke kalendermåneden. Opdatér datoerne her, når en ny
+        lønperiode starter.
+        {payoutDate && (
+          <> Udbetales (skøn): sidste hverdag i den måned perioden slutter i — {formatShortDate(payoutDate)}.</>
+        )}
+      </p>
       <Button onClick={save} disabled={pending} className="flex items-center gap-2">
         <Wallet size={16} /> {pending ? "Gemmer..." : saved ? "Gemt!" : "Gem lønindstillinger"}
       </Button>

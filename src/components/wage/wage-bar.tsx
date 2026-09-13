@@ -43,7 +43,7 @@ export function WageBar() {
       context.priorWeekPaidSeconds,
       context.config
     );
-    const netAmount = netForIncrement(context.priorMonthGross, grossAmount, context.config);
+    const netAmount = netForIncrement(context.priorPeriodGross, grossAmount, context.config);
     return { paidSeconds, grossAmount, netAmount };
   }, [context, now]);
 

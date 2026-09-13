@@ -439,9 +439,15 @@ model WageSettings {
   nightEndHour           Int   @default(5) // nattillæg til kl.
   breakStartMinutes      Int   @default(720) // ulønnet pause fra (minutter efter midnat), 720 = 12:00
   breakEndMinutes        Int   @default(750) // ulønnet pause til, 750 = 12:30
-  monthlyTaxDeduction    Float @default(5100) // skattefradrag kr/måned
+  monthlyTaxDeduction    Float @default(5100) // skattefradrag pr. lønperiode
   amBidragPct            Float @default(0.08) // AM-bidrag
   taxRatePct             Float @default(0.44) // skatteprocent
+
+  // Nuværende lønperiode — skattefradraget spores på tværs af denne periode,
+  // ikke kalendermåneden (lønperioder følger ikke nødvendigvis 1.-sidste).
+  // Opdateres manuelt her i indstillinger når en ny periode starter.
+  payPeriodStart DateTime @default("2026-08-24T00:00:00.000Z")
+  payPeriodEnd   DateTime @default("2026-09-20T00:00:00.000Z")
 
   updatedAt DateTime @updatedAt
 }

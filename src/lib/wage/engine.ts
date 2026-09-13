@@ -14,6 +14,11 @@ export type WageConfig = {
   monthlyTaxDeduction: number;
   amBidragPct: number;
   taxRatePct: number;
+  /** Current pay period — the skattefradrag threshold is tracked across
+   * this window, not the calendar month (pay periods don't necessarily
+   * run 1st-to-last). Updated manually in settings when a new period starts. */
+  payPeriodStart: Date;
+  payPeriodEnd: Date;
 };
 
 export const DEFAULT_WAGE_CONFIG: WageConfig = {
@@ -28,7 +33,31 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   monthlyTaxDeduction: 5100,
   amBidragPct: 0.08,
   taxRatePct: 0.44,
+  payPeriodStart: new Date(2026, 7, 24),
+  payPeriodEnd: new Date(2026, 8, 20),
 };
+
+/** [start, end) of the configured pay period — end is exclusive, i.e. the
+ * instant right after the last (inclusive) calendar day of the period. */
+export function getPayPeriodRange(config: Pick<WageConfig, "payPeriodStart" | "payPeriodEnd">): {
+  start: Date;
+  end: Date;
+} {
+  const start = startOfLocalDay(config.payPeriodStart);
+  const end = startOfLocalDay(config.payPeriodEnd);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+/** Last weekday (Mon-Fri) of the given date's month — an approximation of
+ * "sidste business dag i måneden" that doesn't account for helligdage. */
+export function lastWeekdayOfMonth(date: Date): Date {
+  const d = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() - 1);
+  }
+  return d;
+}
 
 function startOfLocalDay(date: Date): Date {
   const d = new Date(date);
