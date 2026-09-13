@@ -28,7 +28,7 @@ npm run dev
 - **Dashboard**: dagens status, fremgangsbar, problemer, hurtigt overblik
 - **☀️ Godmorgen-briefing / arbejdsassistent** (`/planlaegning`): skriv eller tal naturligt dansk om dagens arbejde ("8 vaske fra haven, 2 taget af natholdet, 3 juletræer skal ryddes op") — appen omdanner det til en struktureret arbejdsplan med mængder, nathold-attribution og "plan vs. faktisk". Se afsnittet nedenfor.
 - **Opgaver**: opret, rediger, prioriter, checklister, gentagne rutiner (dagligt/hverdage/ugedage/ugentligt/hver 2. uge/månedligt/bestemt dato)
-- **Vaskeplan**: trailere, status, vaskehistorik, noter
+- **Vaskeplan**: trailere, status, vaskehistorik, noter, firma (DFDS/DSV) sat på traileren og forudvalgt ved vask (plombe-nr. for DFDS), 📷 tag et billede af traileren for at genkende trailernummer/nummerplade automatisk (kører helt lokalt i browseren — se afsnittet nedenfor)
 - **Drive-in**: hurtig registrering, smart genkendelse af nummerplade + firma, kundehistorik
 - **Søgning**: på tværs af nummerplader, firmaer, trailere og opgaver
 - **Kalender & statistik**: månedsoverblik, uge/måned-nøgletal, og dagens briefing vist i kalenderens dagsvisning
@@ -45,6 +45,12 @@ To lag af forståelse:
 Store, tvetydige beskeder (typisk den første morgenbriefing) vises som en bekræftelseskort ("Jeg tror, du mener...") før noget gemmes; små, entydige opdateringer ("Jeg har taget 2 mere") anvendes med det samme. Mangler AI'en en oplysning (fx et antal), stiller den ét opklarende spørgsmål og husker konteksten til dit næste svar.
 
 **Afslut arbejdsdag** (🌙-knappen på `/planlaegning`) viser planlagt vs. færdigt for alt i dag (både mængde-opgaver og almindelige opgaver), og lader dig pr. restopgave vælge "Flyt til i morgen", "Ikke nødvendig" eller "Afslut alligevel".
+
+## Trailer-scanning (kamera → tekstgenkendelse)
+
+"Tag billede af trailer" i tilføj-trailer-formularen bruger [Tesseract.js](https://github.com/naptha/tesseract.js) — en almindelig, gratis OCR-motor der kører 100% i browseren via WebAssembly. Ingen AI-API, ingen server-kald, ingen omkostning: billedet forlader aldrig telefonen, det læses ind i et `<canvas>`, tekstgenkendelsen kører lokalt, og billedet kasseres med det samme.
+
+Worker-scriptet, WASM-motoren og det engelske tegnsæt (`public/tesseract/`) er hostet direkte i appen i stedet for hentet fra en ekstern CDN ved brug — det gør funktionen mere robust (virker selvom en CDN er nede) og sikrer at versionerne altid matcher. Genkendt tekst tolkes af `src/lib/trailer-ocr.ts`: finder et dansk nummerplade-mønster og et 3-6-cifret trailernummer, og gætter DSV som firma hvis nummeret starter med "500" (alt er stadig frit redigerbart før du gemmer).
 
 ## Deploy til Netlify
 

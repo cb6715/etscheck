@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/current-user";
 import { TrailerStatus } from "@prisma/client";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
+import { normalizePlate } from "@/lib/plate";
 
 export async function getTrailers() {
   return prisma.trailer.findMany({
@@ -142,6 +143,17 @@ export async function addTrailerNote(trailerId: string, text: string) {
     data: { userId, trailerId, text: text.trim(), targetType: "TRAILER" },
   });
   revalidatePath(`/vask/${trailerId}`);
+}
+
+export async function lookupTrailerByPlate(rawPlate: string) {
+  const plate = normalizePlate(rawPlate);
+  if (plate.length < 3) return null;
+
+  const candidates = await prisma.trailer.findMany({
+    where: { licensePlate: { not: null }, deletedAt: null },
+    select: { number: true, company: true, type: true, licensePlate: true },
+  });
+  return candidates.find((t) => t.licensePlate && normalizePlate(t.licensePlate) === plate) ?? null;
 }
 
 export async function resolveProblem(noteId: string) {
