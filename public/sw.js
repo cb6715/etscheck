@@ -1,4 +1,4 @@
-const CACHE_NAME = "arbejdsapp-v1";
+const CACHE_NAME = "arbejdsapp-v2";
 const APP_SHELL = ["/", "/opgaver", "/vask", "/drive-in", "/sog", "/manifest.json"];
 
 self.addEventListener("install", (event) => {

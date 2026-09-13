@@ -2,10 +2,12 @@ import { ReactNode } from "react";
 import { Sidebar } from "@/components/nav/sidebar";
 import { BottomNav } from "@/components/nav/bottom-nav";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { ErrorOverlay } from "@/components/error-overlay";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen w-full">
+      <ErrorOverlay />
       <ServiceWorkerRegister />
       <Sidebar />
       <div className="flex min-h-screen w-full flex-1 flex-col">
