@@ -41,6 +41,70 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   payPeriodEnd: new Date(2026, 8, 20),
 };
 
+// All break/overtime/night clock-time logic is anchored to Danish wall-clock
+// time explicitly, rather than the executing JS runtime's local timezone.
+// That matters because this same code runs on the server (Netlify Functions
+// run in UTC) AND in the browser (Danish local time) — without this, "12:00
+// pause" would mean a different instant depending on which side evaluated
+// it, and the two could disagree on gross/net for the same shift.
+const TIME_ZONE = "Europe/Copenhagen";
+
+function zoneOffsetMs(utcGuess: Date): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIME_ZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = fmt.formatToParts(utcGuess);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return asUTC - utcGuess.getTime();
+}
+
+/** The Danish wall-clock date/time components for `date`, regardless of
+ * what timezone the JS runtime itself is in. */
+function zonedParts(date: Date): { year: number; month: number; day: number; hour: number; minute: number } {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIME_ZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute") };
+}
+
+/** The UTC instant corresponding to a given Danish wall-clock date/time,
+ * correctly accounting for whichever DST offset is in effect on that date. */
+function zonedDateTime(year: number, month: number, day: number, hour: number, minute: number): Date {
+  const naiveUTC = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  return new Date(naiveUTC.getTime() - zoneOffsetMs(naiveUTC));
+}
+
+function startOfLocalDay(date: Date): Date {
+  const { year, month, day } = zonedParts(date);
+  return zonedDateTime(year, month, day, 0, 0);
+}
+
+function addCalendarDays(date: Date, days: number): Date {
+  const { year, month, day } = zonedParts(date);
+  return zonedDateTime(year, month, day + days, 0, 0);
+}
+
+function atMinuteOfDay(day: Date, minutes: number): Date {
+  const { year, month, day: d } = zonedParts(day);
+  return zonedDateTime(year, month, d, Math.floor(minutes / 60), minutes % 60);
+}
+
 /** [start, end) of the configured pay period — end is exclusive, i.e. the
  * instant right after the last (inclusive) calendar day of the period. */
 export function getPayPeriodRange(config: Pick<WageConfig, "payPeriodStart" | "payPeriodEnd">): {
@@ -48,8 +112,7 @@ export function getPayPeriodRange(config: Pick<WageConfig, "payPeriodStart" | "p
   end: Date;
 } {
   const start = startOfLocalDay(config.payPeriodStart);
-  const end = startOfLocalDay(config.payPeriodEnd);
-  end.setDate(end.getDate() + 1);
+  const end = addCalendarDays(startOfLocalDay(config.payPeriodEnd), 1);
   return { start, end };
 }
 
@@ -63,18 +126,6 @@ export function lastWeekdayOfMonth(date: Date): Date {
   return d;
 }
 
-function startOfLocalDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function atMinuteOfDay(day: Date, minutes: number): Date {
-  const d = new Date(day);
-  d.setHours(0, minutes, 0, 0);
-  return d;
-}
-
 /**
  * Every clock-time boundary (break start/end, night start/end) that falls
  * strictly inside (start, end), across every calendar day the interval
@@ -83,32 +134,35 @@ function atMinuteOfDay(day: Date, minutes: number): Date {
  */
 function collectBoundaries(start: Date, end: Date, config: WageConfig): Date[] {
   const times = new Set<number>([start.getTime(), end.getTime()]);
-  const dayCursor = startOfLocalDay(start);
+  let dayCursor = startOfLocalDay(start);
   const markers = [
     config.nightEndHour * 60,
     config.breakStartMinutes,
     config.breakEndMinutes,
     config.nightStartHour * 60,
   ];
-  while (dayCursor.getTime() <= end.getTime()) {
+  let guard = 0;
+  while (dayCursor.getTime() <= end.getTime() && guard < 400) {
     for (const minutes of markers) {
       const t = atMinuteOfDay(dayCursor, minutes);
       if (t.getTime() > start.getTime() && t.getTime() < end.getTime()) {
         times.add(t.getTime());
       }
     }
-    dayCursor.setDate(dayCursor.getDate() + 1);
+    dayCursor = addCalendarDays(dayCursor, 1);
+    guard++;
   }
   return [...times].sort((a, b) => a - b).map((t) => new Date(t));
 }
 
 function isBreakMoment(date: Date, config: WageConfig): boolean {
-  const minuteOfDay = date.getHours() * 60 + date.getMinutes();
+  const { hour, minute } = zonedParts(date);
+  const minuteOfDay = hour * 60 + minute;
   return minuteOfDay >= config.breakStartMinutes && minuteOfDay < config.breakEndMinutes;
 }
 
 function isNightMoment(date: Date, config: WageConfig): boolean {
-  const hour = date.getHours();
+  const { hour } = zonedParts(date);
   return hour >= config.nightStartHour || hour < config.nightEndHour;
 }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { LogIn, LogOut, Wallet } from "lucide-react";
+import { LogIn, LogOut, Wallet, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { checkIn, checkOut, getWageContext, type WageContext } from "@/lib/actions/worksessions";
 import { computeIntervalEarnings, netForCumulative } from "@/lib/wage/engine";
@@ -24,7 +24,21 @@ export function WageBar() {
   const pathname = usePathname();
   const [context, setContext] = useState<WageContext | null>(null);
   const [now, setNow] = useState<Date | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [pending, startTransition] = useTransition();
+
+  function loadContext() {
+    getWageContext()
+      .then((c) => {
+        setContext(c);
+        setLoadError(false);
+      })
+      .catch((e) => {
+        console.error("Wage context fetch failed:", e);
+        setLoadError(true);
+      });
+  }
 
   // Refetch on every route change, and whenever something elsewhere on the
   // current page changed wage data (see WAGE_CONTEXT_CHANGED_EVENT) — the
@@ -32,15 +46,13 @@ export function WageBar() {
   // page), so nothing would otherwise tell it e.g. a historical week was
   // just logged on Indstillinger.
   useEffect(() => {
-    getWageContext().then(setContext);
+    loadContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   useEffect(() => {
-    function refetch() {
-      getWageContext().then(setContext);
-    }
-    window.addEventListener(WAGE_CONTEXT_CHANGED_EVENT, refetch);
-    return () => window.removeEventListener(WAGE_CONTEXT_CHANGED_EVENT, refetch);
+    window.addEventListener(WAGE_CONTEXT_CHANGED_EVENT, loadContext);
+    return () => window.removeEventListener(WAGE_CONTEXT_CHANGED_EVENT, loadContext);
   }, []);
 
   useEffect(() => {
@@ -50,33 +62,69 @@ export function WageBar() {
     return () => clearInterval(id);
   }, [context?.openSession]);
 
+  // Never let a bad clock/config value crash the whole app (this component
+  // lives in the root layout, outside any page-level error boundary) —
+  // fall back to showing nothing live rather than throwing during render.
   const live = useMemo(() => {
     if (!context?.openSession || !now) return null;
-    const checkInAt = new Date(context.openSession.checkInAt);
-    return computeIntervalEarnings(checkInAt, now, context.priorWeekPaidSeconds, context.config);
+    try {
+      const checkInAt = new Date(context.openSession.checkInAt);
+      return computeIntervalEarnings(checkInAt, now, context.priorWeekPaidSeconds, context.config);
+    } catch (e) {
+      console.error("Wage live calc failed:", e);
+      return null;
+    }
   }, [context, now]);
 
-  // Total netto optjent i hele lønperioden til dato — vises altid, også når
-  // man ikke er tjekket ind, og tikker op i takt med den åbne vagt.
   const totalNet = useMemo(() => {
     if (!context) return null;
-    const cumulativeGross = context.priorPeriodGross + (live?.grossAmount ?? 0);
-    const cumulativePaidSeconds = context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0);
-    return netForCumulative(cumulativeGross, cumulativePaidSeconds, context.config);
+    try {
+      const cumulativeGross = context.priorPeriodGross + (live?.grossAmount ?? 0);
+      const cumulativePaidSeconds = context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0);
+      return netForCumulative(cumulativeGross, cumulativePaidSeconds, context.config);
+    } catch (e) {
+      console.error("Wage total calc failed:", e);
+      return null;
+    }
   }, [context, live]);
 
   function handleCheckIn() {
+    setActionError("");
     startTransition(async () => {
-      const next = await checkIn();
-      setContext(next);
+      try {
+        const next = await checkIn();
+        setContext(next);
+      } catch (e) {
+        console.error("Check-in failed:", e);
+        setActionError("Kunne ikke tjekke ind. Prøv igen.");
+      }
     });
   }
 
   function handleCheckOut() {
+    setActionError("");
     startTransition(async () => {
-      const next = await checkOut();
-      setContext(next);
+      try {
+        const next = await checkOut();
+        setContext(next);
+      } catch (e) {
+        console.error("Check-out failed:", e);
+        setActionError("Kunne ikke tjekke ud. Prøv igen.");
+      }
     });
+  }
+
+  if (loadError) {
+    return (
+      <div className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4 sm:px-6">
+        <span className="flex items-center gap-1.5 text-sm text-danger">
+          <AlertTriangle size={14} /> Løn kunne ikke indlæses
+        </span>
+        <button onClick={loadContext} className="text-xs font-bold text-accent underline underline-offset-2">
+          Prøv igen
+        </button>
+      </div>
+    );
   }
 
   if (!context || totalNet === null) {
@@ -104,6 +152,7 @@ export function WageBar() {
         <span className="hidden shrink-0 text-xs text-muted sm:inline">
           netto denne periode{checkedIn && live ? ` · ${formatHMS(live.paidSeconds)} på arbejde nu` : ""}
         </span>
+        {actionError && <span className="shrink-0 text-xs font-medium text-danger">{actionError}</span>}
       </div>
       {checkedIn ? (
         <Button
