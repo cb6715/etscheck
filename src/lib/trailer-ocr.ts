@@ -6,18 +6,16 @@ export type TrailerOcrResult = {
   company?: "DFDS" | "DSV";
 };
 
-// Danish plates aren't always 2 letters + 5 digits ("AB 12 345") — trailers
-// in particular are often 2 letters + 4 digits ("FY 62 17"). Match 2 letters
-// followed by a run of 4-6 digits (tolerating whitespace/hyphens the OCR
-// inserts between every group, or even between individual digits), then
-// re-group for display rather than assuming a fixed digit count.
-const PLATE_REGEX = /\b([A-ZÆØÅ]{2})[\s-]*((?:\d[\s-]*){4,6})\b/;
+// Trailer plates here are always 2 letters + 4 digits ("FY 62 17") — not the
+// 5-digit car format ("AB 12 345"). Matching exactly 4 digits (tolerating
+// whitespace/hyphens the OCR inserts between every group, or even between
+// individual digits) avoids misreading a 5-6 digit trailer number as part
+// of the plate.
+const PLATE_REGEX = /\b([A-ZÆØÅ]{2})[\s-]*((?:\d[\s-]*){4})\b/;
 const NUMBER_REGEX = /\b(\d{3,6})\b/g;
 
 function formatPlateDigits(digits: string): string {
-  if (digits.length === 4 || digits.length === 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
-  if (digits.length === 6) return `${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4)}`;
-  return digits;
+  return `${digits.slice(0, 2)} ${digits.slice(2)}`;
 }
 
 // Self-hosted (not the jsdelivr CDN tesseract.js defaults to) so OCR keeps
