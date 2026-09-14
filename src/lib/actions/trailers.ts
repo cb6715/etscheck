@@ -6,8 +6,32 @@ import { getCurrentUserId } from "@/lib/current-user";
 import { TrailerStatus } from "@prisma/client";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 import { normalizePlate } from "@/lib/plate";
+import { copenhagenStartOfDay } from "@/lib/timezone";
+
+// Trailers get washed every day, not once — a trailer marked "Vasket"
+// yesterday shouldn't still show as washed today. Resets it back to
+// "Mangler" for display once its most recent TrailerWash falls before
+// today (Danish calendar day); the wash history itself is untouched and
+// stays visible in the calendar/stats.
+async function ensureDailyTrailerReset() {
+  const today = copenhagenStartOfDay(new Date());
+  const staleWashed = await prisma.trailer.findMany({
+    where: { status: TrailerStatus.VASKET, deletedAt: null },
+    include: { washes: { orderBy: { washedAt: "desc" }, take: 1 } },
+  });
+  const staleIds = staleWashed
+    .filter((t) => !t.washes[0] || t.washes[0].washedAt < today)
+    .map((t) => t.id);
+  if (staleIds.length > 0) {
+    await prisma.trailer.updateMany({
+      where: { id: { in: staleIds } },
+      data: { status: TrailerStatus.MANGLER },
+    });
+  }
+}
 
 export async function getTrailers() {
+  await ensureDailyTrailerReset();
   return prisma.trailer.findMany({
     where: { deletedAt: null },
     include: {
@@ -19,6 +43,7 @@ export async function getTrailers() {
 }
 
 export async function getTrailerDetail(id: string) {
+  await ensureDailyTrailerReset();
   return prisma.trailer.findUnique({
     where: { id },
     include: {
