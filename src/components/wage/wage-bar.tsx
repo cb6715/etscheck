@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { LogIn, LogOut, Wallet, AlertTriangle, Pencil, Check, X } from "lucide-react";
+import { LogIn, LogOut, Wallet, AlertTriangle, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import {
   checkIn,
@@ -16,14 +16,6 @@ import { WAGE_CONTEXT_CHANGED_EVENT } from "@/lib/wage/events";
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
-}
-
-function formatHMS(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
 function timeInputValue(date: Date): string {
@@ -195,51 +187,27 @@ export function WageBar() {
       <div className="flex h-14 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2">
           {checkedIn ? (
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <button
+              onClick={openCheckInEditor}
+              className="relative flex h-2.5 w-2.5 shrink-0"
+              title={`Tjekket ind kl. ${context.openSession ? timeInputValue(new Date(context.openSession.checkInAt)) : ""} — ret tidspunkt`}
+            >
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
-            </span>
+            </button>
           ) : (
             <Wallet size={16} className="shrink-0 text-muted" />
           )}
-          <span
-            className={`truncate font-mono text-base font-bold tabular-nums tracking-tight sm:text-lg ${checkedIn ? "text-success" : "text-foreground"}`}
-          >
+          <span className="font-mono text-base font-bold tabular-nums tracking-tight text-success sm:text-lg">
             {formatKr(totalNet)}
           </span>
           {totalFeriepenge !== null && (
             <span
-              className="shrink-0 font-mono text-xs font-medium tabular-nums text-muted"
+              className="shrink-0 font-mono text-xs font-medium tabular-nums text-info"
               title="Optjente feriepenge (netto) denne periode — 12,5% af bruttolønnen, beskattet for sig selv. Udbetales ikke nu, men står til gode til ferie/jobskifte."
             >
-              Feriepenge {formatKr(totalFeriepenge)}
+              {formatKr(totalFeriepenge)}
             </span>
-          )}
-          <span className="hidden shrink-0 items-center gap-1 text-xs text-muted sm:flex">
-            netto denne periode
-            {checkedIn && live && (
-              <>
-                {" "}
-                · tjekket ind kl. {context.openSession && timeInputValue(new Date(context.openSession.checkInAt))} ·{" "}
-                {formatHMS(live.paidSeconds)} på arbejde nu
-                <button
-                  onClick={openCheckInEditor}
-                  className="ml-1 shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-accent"
-                  title="Ret tjek-ind tidspunkt"
-                >
-                  <Pencil size={12} />
-                </button>
-              </>
-            )}
-          </span>
-          {checkedIn && live && (
-            <button
-              onClick={openCheckInEditor}
-              className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-accent sm:hidden"
-              title="Ret tjek-ind tidspunkt"
-            >
-              <Pencil size={13} />
-            </button>
           )}
           {actionError && <span className="shrink-0 text-xs font-medium text-danger">{actionError}</span>}
         </div>
