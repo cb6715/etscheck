@@ -6,11 +6,19 @@ export type TrailerOcrResult = {
   company?: "DFDS" | "DSV";
 };
 
-// Tolerant of extra/odd whitespace or a hyphen between groups — OCR often
-// inserts inconsistent gaps (or none, or a line break) between the letter
-// and digit groups of a plate.
-const PLATE_REGEX = /\b([A-ZÆØÅ]{2})[\s-]*(\d{2})[\s-]*(\d{3})\b/;
+// Danish plates aren't always 2 letters + 5 digits ("AB 12 345") — trailers
+// in particular are often 2 letters + 4 digits ("FY 62 17"). Match 2 letters
+// followed by a run of 4-6 digits (tolerating whitespace/hyphens the OCR
+// inserts between every group, or even between individual digits), then
+// re-group for display rather than assuming a fixed digit count.
+const PLATE_REGEX = /\b([A-ZÆØÅ]{2})[\s-]*((?:\d[\s-]*){4,6})\b/;
 const NUMBER_REGEX = /\b(\d{3,6})\b/g;
+
+function formatPlateDigits(digits: string): string {
+  if (digits.length === 4 || digits.length === 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
+  if (digits.length === 6) return `${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4)}`;
+  return digits;
+}
 
 // Self-hosted (not the jsdelivr CDN tesseract.js defaults to) so OCR keeps
 // working even when third-party CDNs are unreachable, and so the exact
@@ -53,6 +61,14 @@ export async function recognizeTrailerImage(source: HTMLCanvasElement): Promise<
     // comes back empty, and binarizing often recovers text a greyscale
     // pass misses.
     const binarized = binarizeForOcr(source);
+    const second = await recognizeOnce(worker, binarized);
+    if (!isEmpty(second)) return second;
+
+    // Still nothing — last attempt, treating the plate as a single line of
+    // text rather than a block. Empirically this configuration reads the
+    // most characters correctly on plates the two passes above miss
+    // entirely, even though it isn't reliably exact.
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
     return await recognizeOnce(worker, binarized);
   } finally {
     await worker.terminate();
@@ -66,7 +82,8 @@ export function parseOcrText(rawText: string): TrailerOcrResult {
   const plateMatch = text.match(PLATE_REGEX);
   let searchText = text;
   if (plateMatch) {
-    result.licensePlate = `${plateMatch[1]} ${plateMatch[2]} ${plateMatch[3]}`;
+    const digits = plateMatch[2].replace(/[\s-]/g, "");
+    result.licensePlate = `${plateMatch[1]} ${formatPlateDigits(digits)}`;
     // Blank out the matched plate span so its digits can't also be picked up
     // as a standalone trailer-number candidate below.
     searchText = text.slice(0, plateMatch.index) + " ".repeat(plateMatch[0].length) + text.slice((plateMatch.index ?? 0) + plateMatch[0].length);
