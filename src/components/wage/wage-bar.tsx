@@ -12,6 +12,7 @@ import {
   type WageContext,
 } from "@/lib/actions/worksessions";
 import { computeIntervalEarnings, netForCumulative, feriepengeForGross } from "@/lib/wage/engine";
+import { zonedParts } from "@/lib/timezone";
 import { WAGE_CONTEXT_CHANGED_EVENT } from "@/lib/wage/events";
 
 function formatKr(n: number): string {
@@ -78,6 +79,16 @@ export function WageBar() {
       console.error("Wage live calc failed:", e);
       return null;
     }
+  }, [context, now]);
+
+  // Whether right now falls inside the configured unpaid break — the live
+  // counter correctly stops accumulating during it, which otherwise just
+  // looks like the app has frozen/broken rather than working as intended.
+  const onBreak = useMemo(() => {
+    if (!context?.openSession || !now) return false;
+    const { hour, minute } = zonedParts(now);
+    const minuteOfDay = hour * 60 + minute;
+    return minuteOfDay >= context.config.breakStartMinutes && minuteOfDay < context.config.breakEndMinutes;
   }, [context, now]);
 
   const totalNet = useMemo(() => {
@@ -192,8 +203,10 @@ export function WageBar() {
               className="relative flex h-2.5 w-2.5 shrink-0"
               title={`Tjekket ind kl. ${context.openSession ? timeInputValue(new Date(context.openSession.checkInAt)) : ""} — ret tidspunkt`}
             >
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
+              <span
+                className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${onBreak ? "bg-warning" : "animate-ping bg-success"}`}
+              />
+              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${onBreak ? "bg-warning" : "bg-success"}`} />
             </button>
           ) : (
             <Wallet size={16} className="shrink-0 text-muted" />
@@ -201,6 +214,11 @@ export function WageBar() {
           <span className="font-mono text-base font-bold tabular-nums tracking-tight text-success sm:text-lg">
             {formatKr(totalNet)}
           </span>
+          {onBreak && (
+            <span className="shrink-0 rounded-full bg-warning-bg px-2 py-0.5 text-xs font-bold text-warning">
+              Pause
+            </span>
+          )}
           {totalFeriepenge !== null && (
             <span
               className="shrink-0 font-mono text-xs font-medium tabular-nums text-info"
