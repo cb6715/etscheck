@@ -1,4 +1,4 @@
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM, type Worker } from "tesseract.js";
 
 export type TrailerOcrResult = {
   trailerNumber?: string;
@@ -21,13 +21,39 @@ const TESSERACT_ASSETS = {
   langPath: "/tesseract/eng",
 };
 
+function isEmpty(result: TrailerOcrResult): boolean {
+  return !result.trailerNumber && !result.licensePlate;
+}
+
+async function recognizeOnce(worker: Worker, source: HTMLCanvasElement): Promise<TrailerOcrResult> {
+  const {
+    data: { text },
+  } = await worker.recognize(source);
+  return parseOcrText(text);
+}
+
 export async function recognizeTrailerImage(source: HTMLCanvasElement): Promise<TrailerOcrResult> {
   const worker = await createWorker("eng", 1, TESSERACT_ASSETS);
   try {
-    const {
-      data: { text },
-    } = await worker.recognize(source);
-    return parseOcrText(text);
+    // Tesseract is built for scanned documents, not embossed/reflective
+    // vehicle-style plates photographed at an angle — a whitelist (no stray
+    // punctuation candidates) and a page-segmentation mode suited to a
+    // single block of large text both noticeably help on this kind of shot.
+    await worker.setParameters({
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ0123456789 ",
+      tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+    });
+
+    const first = await recognizeOnce(worker, source);
+    if (!isEmpty(first)) return first;
+
+    // First pass found nothing at all — retry against a high-contrast,
+    // black/white version of the same photo (Otsu thresholding). Lighting,
+    // glare and low contrast on a plate are the most common reasons OCR
+    // comes back empty, and binarizing often recovers text a greyscale
+    // pass misses.
+    const binarized = binarizeForOcr(source);
+    return await recognizeOnce(worker, binarized);
   } finally {
     await worker.terminate();
   }
@@ -87,4 +113,71 @@ export function loadImageToCanvas(file: File): Promise<HTMLCanvasElement> {
     };
     img.src = objectUrl;
   });
+}
+
+/** Grayscale + Otsu auto-threshold black/white conversion — a standard,
+ * cheap way to make photographed text stand out for OCR when plain
+ * greyscale isn't enough (glare, low contrast, uneven lighting). */
+export function binarizeForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return source;
+  ctx.drawImage(source, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = imageData;
+  const pixelCount = data.length / 4;
+  const gray = new Uint8ClampedArray(pixelCount);
+  const histogram = new Array<number>(256).fill(0);
+
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * 4;
+    const luminance = Math.round(0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2]);
+    gray[i] = luminance;
+    histogram[luminance]++;
+  }
+
+  const threshold = otsuThreshold(histogram, pixelCount);
+
+  for (let i = 0; i < pixelCount; i++) {
+    const v = gray[i] >= threshold ? 255 : 0;
+    const o = i * 4;
+    data[o] = v;
+    data[o + 1] = v;
+    data[o + 2] = v;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function otsuThreshold(histogram: number[], totalPixels: number): number {
+  let sumAll = 0;
+  for (let t = 0; t < 256; t++) sumAll += t * histogram[t];
+
+  let sumBackground = 0;
+  let weightBackground = 0;
+  let maxVariance = 0;
+  let threshold = 127;
+
+  for (let t = 0; t < 256; t++) {
+    weightBackground += histogram[t];
+    if (weightBackground === 0) continue;
+    const weightForeground = totalPixels - weightBackground;
+    if (weightForeground === 0) break;
+
+    sumBackground += t * histogram[t];
+    const meanBackground = sumBackground / weightBackground;
+    const meanForeground = (sumAll - sumBackground) / weightForeground;
+    const betweenVariance = weightBackground * weightForeground * (meanBackground - meanForeground) ** 2;
+
+    if (betweenVariance > maxVariance) {
+      maxVariance = betweenVariance;
+      threshold = t;
+    }
+  }
+
+  return threshold;
 }
