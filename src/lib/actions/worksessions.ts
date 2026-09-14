@@ -49,37 +49,47 @@ async function priorWeekPaidSeconds(userId: string, before: Date) {
   return sessions.reduce((sum, s) => sum + (s.paidSeconds ?? 0), 0);
 }
 
-// Gross kr already earned in the current pay period, strictly before
-// `before` — the baseline the skattefradrag threshold is measured against.
-async function priorPeriodGross(userId: string, before: Date, config: WageConfig) {
+// Gross kr and paid seconds already earned in the current pay period,
+// strictly before `before` — the baseline both the skattefradrag threshold
+// AND the ATP calculation are measured against (ATP scales with hours).
+async function priorPeriodTotals(userId: string, before: Date, config: WageConfig) {
   const { start, end } = getPayPeriodRange(config);
   const windowEnd = before < end ? before : end;
   const sessions = await prisma.workSession.findMany({
     where: { userId, checkOutAt: { not: null }, checkInAt: { gte: start, lt: windowEnd } },
-    select: { grossAmount: true },
+    select: { grossAmount: true, paidSeconds: true },
   });
-  return sessions.reduce((sum, s) => sum + (s.grossAmount ?? 0), 0);
+  return sessions.reduce(
+    (acc, s) => ({
+      gross: acc.gross + (s.grossAmount ?? 0),
+      paidSeconds: acc.paidSeconds + (s.paidSeconds ?? 0),
+    }),
+    { gross: 0, paidSeconds: 0 }
+  );
 }
 
 // Re-derives netAmount for every session in the current pay period, in
 // chronological order. Needed because a session's net share depends on how
-// much gross came *before* it in the period — inserting a manual week out
-// of date order (e.g. logging last week's hours after this week's) would
-// otherwise leave earlier-inserted sessions with a stale, wrong net figure
-// computed against an incomplete picture of the period.
+// much gross/hours came *before* it in the period — inserting a manual week
+// out of date order (e.g. logging last week's hours after this week's)
+// would otherwise leave earlier-inserted sessions with a stale, wrong net
+// figure computed against an incomplete picture of the period.
 async function rebalancePeriodNetAmounts(userId: string, config: WageConfig) {
   const { start, end } = getPayPeriodRange(config);
   const sessions = await prisma.workSession.findMany({
     where: { userId, checkOutAt: { not: null }, checkInAt: { gte: start, lt: end } },
     orderBy: { checkInAt: "asc" },
-    select: { id: true, grossAmount: true, netAmount: true },
+    select: { id: true, grossAmount: true, paidSeconds: true, netAmount: true },
   });
 
   let cumulativeGross = 0;
+  let cumulativePaidSeconds = 0;
   for (const s of sessions) {
     const gross = s.grossAmount ?? 0;
-    const net = netForIncrement(cumulativeGross, gross, config);
+    const seconds = s.paidSeconds ?? 0;
+    const net = netForIncrement(cumulativeGross, cumulativePaidSeconds, gross, seconds, config);
     cumulativeGross += gross;
+    cumulativePaidSeconds += seconds;
     if (Math.abs((s.netAmount ?? 0) - net) > 0.001) {
       await prisma.workSession.update({ where: { id: s.id }, data: { netAmount: net } });
     }
@@ -91,6 +101,7 @@ export type WageContext = {
   openSession: { id: string; checkInAt: string } | null;
   priorWeekPaidSeconds: number;
   priorPeriodGross: number;
+  priorPeriodPaidSeconds: number;
 };
 
 export async function getWageContext(): Promise<WageContext> {
@@ -101,16 +112,17 @@ export async function getWageContext(): Promise<WageContext> {
   ]);
 
   const referenceTime = openSession?.checkInAt ?? new Date();
-  const [weekSeconds, periodGross] = await Promise.all([
+  const [weekSeconds, periodTotals] = await Promise.all([
     priorWeekPaidSeconds(userId, referenceTime),
-    priorPeriodGross(userId, referenceTime, config),
+    priorPeriodTotals(userId, referenceTime, config),
   ]);
 
   return {
     config,
     openSession: openSession ? { id: openSession.id, checkInAt: openSession.checkInAt.toISOString() } : null,
     priorWeekPaidSeconds: weekSeconds,
-    priorPeriodGross: periodGross,
+    priorPeriodGross: periodTotals.gross,
+    priorPeriodPaidSeconds: periodTotals.paidSeconds,
   };
 }
 
@@ -134,12 +146,12 @@ export async function checkOut(): Promise<WageContext> {
   if (session) {
     const config = await getOrCreateWageSettings(userId);
     const now = new Date();
-    const [weekSecondsBefore, periodGrossBefore] = await Promise.all([
+    const [weekSecondsBefore, periodBefore] = await Promise.all([
       priorWeekPaidSeconds(userId, session.checkInAt),
-      priorPeriodGross(userId, session.checkInAt, config),
+      priorPeriodTotals(userId, session.checkInAt, config),
     ]);
     const { paidSeconds, grossAmount } = computeIntervalEarnings(session.checkInAt, now, weekSecondsBefore, config);
-    const netAmount = netForIncrement(periodGrossBefore, grossAmount, config);
+    const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
     await prisma.workSession.update({
       where: { id: session.id },
@@ -195,12 +207,12 @@ async function insertManualWeek(userId: string, weekOf: Date, hours: number): Pr
   if (existing) return "exists";
 
   const config = await getOrCreateWageSettings(userId);
-  const [weekSecondsBefore, periodGrossBefore] = await Promise.all([
+  const [weekSecondsBefore, periodBefore] = await Promise.all([
     priorWeekPaidSeconds(userId, start),
-    priorPeriodGross(userId, start, config),
+    priorPeriodTotals(userId, start, config),
   ]);
   const { paidSeconds, grossAmount } = computeWeekGrossFromHours(hours, weekSecondsBefore, config);
-  const netAmount = netForIncrement(periodGrossBefore, grossAmount, config);
+  const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
   await prisma.workSession.create({
     data: {

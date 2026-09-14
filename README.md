@@ -58,11 +58,11 @@ Worker-scriptet, WASM-motoren og det engelske tegnsæt (`public/tesseract/`) er 
 Bjælken i toppen af appen (`src/components/wage/wage-bar.tsx`) lader dig tjekke ind/ud, og tæller din nettoløn op live med et sekunds mellemrum mens du er tjekket ind. Beregningen (`src/lib/wage/engine.ts`) er ren, testet matematik uden nogen server-afhængighed i selve tælleren:
 
 - **Grundløn** kr/time, med **overtidstillæg** når ugens betalte timer overstiger tærsklen (default 37 t/uge — sporet på tværs af tidligere afsluttede vagter denne uge).
-- **Nattillæg** i det konfigurerede tidsrum (default 17:00–05:00), som lægges oveni evt. overtidstillæg.
+- **Aftentillæg** i det konfigurerede tidsrum (default 17:00–05:00), som lægges oveni evt. overtidstillæg.
 - En daglig **ulønnet pause** (default 12:00–12:30) trækkes automatisk fra og tæller ikke med.
-- **Skat**: AM-bidrag trækkes altid først; et månedligt **skattefradrag** gør at de første kr hver måned kun rammes af AM-bidrag, hvorefter resten beskattes med skatteprocenten — sporet på tværs af tidligere afsluttede vagter denne måned, så tælleren automatisk skifter til efter-fradrag-satsen på det rigtige sekund.
+- **Skat**, i samme rækkefølge som en rigtig lønseddel: **ATP-bidrag** (kr/time) trækkes først fra bruttoen; **AM-bidrag** (8%) beregnes af resten; et **skattefradrag** pr. lønperiode gør at de første kr i perioden kun rammes af ATP+AM-bidrag, hvorefter resten beskattes med skatteprocenten. Sporet på tværs af tidligere sessioner i **lønperioden** (ikke kalendermåneden — periodens datoer sættes under Indstillinger), så tælleren skifter til efter-fradrag-satsen på det rigtige sekund, og genberegnes automatisk hvis en session tilføjes ude af kronologisk rækkefølge.
 
-Alle tal er dine egne og redigeres under **Indstillinger → Løn**. Da appen kun har én bruger, er dette en personlig lommeregner, ikke en officiel lønseddel — men beregningsrækkefølgen (AM-bidrag → fradrag → skat) følger den almindelige danske model.
+Alle tal er dine egne og redigeres under **Indstillinger → Løn** (inkl. en genvej til at logge tidligere ugers timer bagudrettet, og en historik over dem). Da appen kun har én bruger, er dette en personlig lommeregner, ikke en officiel lønseddel — men både satserne og beregningsrækkefølgen er kalibreret mod en rigtig Danløn-lønseddel og matcher den til øre-niveau.
 
 ## Deploy til Netlify
 

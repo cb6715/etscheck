@@ -442,6 +442,7 @@ model WageSettings {
   monthlyTaxDeduction    Float @default(5100) // skattefradrag pr. lønperiode
   amBidragPct            Float @default(0.08) // AM-bidrag
   taxRatePct             Float @default(0.44) // skatteprocent
+  atpRatePerHour         Float @default(0.6822) // ATP-bidrag kr/time, trukket før AM-bidrag beregnes
 
   // Nuværende lønperiode — skattefradraget spores på tværs af denne periode,
   // ikke kalendermåneden (lønperioder følger ikke nødvendigvis 1.-sidste).

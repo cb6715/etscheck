@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "WageSettings" ADD COLUMN     "atpRatePerHour" DOUBLE PRECISION NOT NULL DEFAULT 0.6822;

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { LogIn, LogOut, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { checkIn, checkOut, getWageContext, type WageContext } from "@/lib/actions/worksessions";
-import { computeIntervalEarnings, netForCumulativeGross } from "@/lib/wage/engine";
+import { computeIntervalEarnings, netForCumulative } from "@/lib/wage/engine";
 import { WAGE_CONTEXT_CHANGED_EVENT } from "@/lib/wage/events";
 
 function formatKr(n: number): string {
@@ -61,7 +61,8 @@ export function WageBar() {
   const totalNet = useMemo(() => {
     if (!context) return null;
     const cumulativeGross = context.priorPeriodGross + (live?.grossAmount ?? 0);
-    return netForCumulativeGross(cumulativeGross, context.config);
+    const cumulativePaidSeconds = context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0);
+    return netForCumulative(cumulativeGross, cumulativePaidSeconds, context.config);
   }, [context, live]);
 
   function handleCheckIn() {

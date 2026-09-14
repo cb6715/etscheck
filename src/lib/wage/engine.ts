@@ -14,6 +14,9 @@ export type WageConfig = {
   monthlyTaxDeduction: number;
   amBidragPct: number;
   taxRatePct: number;
+  /** ATP-bidrag kr/time — a small mandatory pension contribution deducted
+   * from gross BEFORE AM-bidrag is calculated on what's left. */
+  atpRatePerHour: number;
   /** Current pay period — the skattefradrag threshold is tracked across
    * this window, not the calendar month (pay periods don't necessarily
    * run 1st-to-last). Updated manually in settings when a new period starts. */
@@ -33,6 +36,7 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   monthlyTaxDeduction: 5100,
   amBidragPct: 0.08,
   taxRatePct: 0.44,
+  atpRatePerHour: 0.6822,
   payPeriodStart: new Date(2026, 7, 24),
   payPeriodEnd: new Date(2026, 8, 20),
 };
@@ -189,21 +193,36 @@ export function computeWeekGrossFromHours(
   return { paidSeconds, grossAmount };
 }
 
-/** Absolute net kr for a given cumulative monthly gross figure. */
-export function netForCumulativeGross(cumulativeGross: number, config: WageConfig): number {
-  const amBidrag = cumulativeGross * config.amBidragPct;
-  const taxableIncome = Math.max(0, cumulativeGross - amBidrag - config.monthlyTaxDeduction);
+/**
+ * Absolute net kr for a given cumulative period gross (kr) and cumulative
+ * paid seconds — ATP is deducted from gross first (it scales with hours,
+ * not kr), THEN AM-bidrag is calculated on what's left, matching the order
+ * a real lønseddel uses (AM-indkomst = gross - ATP).
+ */
+export function netForCumulative(cumulativeGross: number, cumulativePaidSeconds: number, config: WageConfig): number {
+  const atp = (cumulativePaidSeconds / 3600) * config.atpRatePerHour;
+  const amBase = cumulativeGross - atp;
+  const amBidrag = amBase * config.amBidragPct;
+  const taxableIncome = Math.max(0, amBase - amBidrag - config.monthlyTaxDeduction);
   const tax = taxableIncome * config.taxRatePct;
-  return cumulativeGross - amBidrag - tax;
+  return cumulativeGross - atp - amBidrag - tax;
 }
 
 /**
- * Net kr attributable to `incrementGross`, given `priorMonthGross` already
- * earned this month — correctly prorates across the skattefradrag threshold
- * if the increment straddles it.
+ * Net kr attributable to an increment of `incrementGross` kr /
+ * `incrementPaidSeconds` seconds, given what already came before it in the
+ * period — correctly prorates across the skattefradrag threshold if the
+ * increment straddles it.
  */
-export function netForIncrement(priorMonthGross: number, incrementGross: number, config: WageConfig): number {
+export function netForIncrement(
+  priorGross: number,
+  priorPaidSeconds: number,
+  incrementGross: number,
+  incrementPaidSeconds: number,
+  config: WageConfig
+): number {
   return (
-    netForCumulativeGross(priorMonthGross + incrementGross, config) - netForCumulativeGross(priorMonthGross, config)
+    netForCumulative(priorGross + incrementGross, priorPaidSeconds + incrementPaidSeconds, config) -
+    netForCumulative(priorGross, priorPaidSeconds, config)
   );
 }

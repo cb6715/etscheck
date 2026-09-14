@@ -46,6 +46,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
   const [monthlyTaxDeduction, setMonthlyTaxDeduction] = useState(String(settings.monthlyTaxDeduction));
   const [amBidragPct, setAmBidragPct] = useState(String(settings.amBidragPct * 100));
   const [taxRatePct, setTaxRatePct] = useState(String(settings.taxRatePct * 100));
+  const [atpRatePerHour, setAtpRatePerHour] = useState(String(settings.atpRatePerHour));
   const [payPeriodStart, setPayPeriodStart] = useState(dateToInputValue(settings.payPeriodStart));
   const [payPeriodEnd, setPayPeriodEnd] = useState(dateToInputValue(settings.payPeriodEnd));
 
@@ -70,6 +71,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
         amBidragPct: (Number(amBidragPct) || 0) / 100,
         taxRatePct: (Number(taxRatePct) || 0) / 100,
+        atpRatePerHour: Number(atpRatePerHour) || 0,
         payPeriodStart: inputValueToDate(payPeriodStart),
         payPeriodEnd: inputValueToDate(payPeriodEnd),
       });
@@ -101,7 +103,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
             onChange={(e) => setOvertimeBonusPct(e.target.value)}
           />
         </Field>
-        <Field label="Nattillæg (kr/time)">
+        <Field label="Aftentillæg (kr/time)">
           <input
             className={inputClass}
             type="number"
@@ -109,7 +111,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
             onChange={(e) => setNightSupplement(e.target.value)}
           />
         </Field>
-        <Field label="Nattillæg fra kl.">
+        <Field label="Aftentillæg fra kl.">
           <select
             className={inputClass}
             value={nightStartHour}
@@ -122,7 +124,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
             ))}
           </select>
         </Field>
-        <Field label="Nattillæg til kl.">
+        <Field label="Aftentillæg til kl.">
           <select className={inputClass} value={nightEndHour} onChange={(e) => setNightEndHour(Number(e.target.value))}>
             {HOUR_OPTIONS.map((h) => (
               <option key={h} value={h}>
@@ -151,6 +153,15 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         <Field label="Skatteprocent (%)">
           <input className={inputClass} type="number" value={taxRatePct} onChange={(e) => setTaxRatePct(e.target.value)} />
         </Field>
+        <Field label="ATP-bidrag (kr/time)">
+          <input
+            className={inputClass}
+            type="number"
+            step="0.0001"
+            value={atpRatePerHour}
+            onChange={(e) => setAtpRatePerHour(e.target.value)}
+          />
+        </Field>
         <Field label="Lønperiode fra">
           <input
             className={inputClass}
@@ -174,8 +185,9 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         <Wallet size={16} /> {pending ? "Gemmer..." : saved ? "Gemt!" : "Gem lønindstillinger"}
       </Button>
       <p className="text-xs text-muted">
-        Bruges af den live løn-tæller i toppen af appen. Ændringer gælder fra næste tjek-ind — allerede afsluttede
-        vagter beregnes ikke om.
+        Bruges af den live løn-tæller i toppen af appen. Ændringer til satser (grundløn, tillæg osv.) gælder fra
+        næste tjek-ind — allerede afsluttede vagters brutto beregnes ikke om. Skat/AM-bidrag/ATP på tværs af perioden
+        genberegnes derimod altid ud fra de aktuelle satser her.
       </p>
     </Card>
   );
