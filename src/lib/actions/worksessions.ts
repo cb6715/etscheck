@@ -96,19 +96,30 @@ async function rebalancePeriodNetAmounts(userId: string, config: WageConfig) {
   }
 }
 
+// How long after an accidental "tjek ud" the undo option stays available —
+// long enough to catch a fumbled tap, short enough that it can't be used to
+// merge two genuinely separate shifts together.
+const UNDO_CHECKOUT_WINDOW_MS = 30 * 60 * 1000;
+
 export type WageContext = {
   config: WageConfig;
   openSession: { id: string; checkInAt: string } | null;
   priorWeekPaidSeconds: number;
   priorPeriodGross: number;
   priorPeriodPaidSeconds: number;
+  canUndoCheckout: boolean;
 };
 
 export async function getWageContext(): Promise<WageContext> {
   const userId = await getCurrentUserId();
-  const [config, openSession] = await Promise.all([
+  const [config, openSession, lastClosed] = await Promise.all([
     getOrCreateWageSettings(userId),
     prisma.workSession.findFirst({ where: { userId, checkOutAt: null }, orderBy: { checkInAt: "desc" } }),
+    prisma.workSession.findFirst({
+      where: { userId, checkOutAt: { not: null }, isManualEntry: false },
+      orderBy: { checkOutAt: "desc" },
+      select: { checkOutAt: true },
+    }),
   ]);
 
   const referenceTime = openSession?.checkInAt ?? new Date();
@@ -123,7 +134,42 @@ export async function getWageContext(): Promise<WageContext> {
     priorWeekPaidSeconds: weekSeconds,
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
+    canUndoCheckout: Boolean(
+      lastClosed?.checkOutAt && Date.now() - lastClosed.checkOutAt.getTime() < UNDO_CHECKOUT_WINDOW_MS
+    ),
   };
+}
+
+// Undoes an accidental "tjek ud" (optionally followed by an accidental
+// "tjek ind" right after) — reopens the most recently closed session and,
+// if a new one was started in the meantime, folds it back in by deleting
+// it, so the whole thing looks like a single uninterrupted shift again.
+export async function undoLastCheckOut(): Promise<WageContext> {
+  const userId = await getCurrentUserId();
+  const lastClosed = await prisma.workSession.findFirst({
+    where: { userId, checkOutAt: { not: null }, isManualEntry: false },
+    orderBy: { checkOutAt: "desc" },
+  });
+  if (!lastClosed?.checkOutAt || Date.now() - lastClosed.checkOutAt.getTime() > UNDO_CHECKOUT_WINDOW_MS) {
+    throw new Error("Der er ikke noget nyligt tjek ud at fortryde.");
+  }
+
+  const accidentalReopen = await prisma.workSession.findFirst({
+    where: { userId, checkOutAt: null, id: { not: lastClosed.id } },
+    orderBy: { checkInAt: "desc" },
+  });
+  if (accidentalReopen) {
+    await prisma.workSession.delete({ where: { id: accidentalReopen.id } });
+  }
+  await prisma.workSession.update({
+    where: { id: lastClosed.id },
+    data: { checkOutAt: null, paidSeconds: null, grossAmount: null, netAmount: null },
+  });
+
+  const config = await getOrCreateWageSettings(userId);
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/");
+  return getWageContext();
 }
 
 export async function checkIn(): Promise<WageContext> {

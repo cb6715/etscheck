@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { LogIn, LogOut, Wallet, AlertTriangle, Check, X } from "lucide-react";
+import { LogIn, LogOut, Wallet, AlertTriangle, Check, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import {
   checkIn,
   checkOut,
   getWageContext,
   updateCheckInTime,
+  undoLastCheckOut,
   type WageContext,
 } from "@/lib/actions/worksessions";
 import { computeIntervalEarnings, netForCumulative, feriepengeForGross } from "@/lib/wage/engine";
@@ -144,6 +145,19 @@ export function WageBar() {
     });
   }
 
+  function handleUndoCheckout() {
+    setActionError("");
+    startTransition(async () => {
+      try {
+        const next = await undoLastCheckOut();
+        setContext(next);
+      } catch (e) {
+        console.error("Undo checkout failed:", e);
+        setActionError(e instanceof Error ? e.message : "Kunne ikke fortryde.");
+      }
+    });
+  }
+
   function openCheckInEditor() {
     if (context?.openSession) {
       setCheckInTimeInput(timeInputValue(new Date(context.openSession.checkInAt)));
@@ -245,6 +259,19 @@ export function WageBar() {
           </Button>
         )}
       </div>
+
+      {context.canUndoCheckout && !editingCheckIn && (
+        <div className="flex items-center justify-between gap-2 border-t border-border bg-surface-2 px-4 py-1.5 sm:px-6">
+          <span className="text-xs text-muted">Kom du til at tjekke ud ved en fejl?</span>
+          <button
+            onClick={handleUndoCheckout}
+            disabled={pending}
+            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-accent hover:bg-surface disabled:opacity-60"
+          >
+            <Undo2 size={13} /> Fortryd tjek ud
+          </button>
+        </div>
+      )}
 
       {editingCheckIn && (
         <div className="flex items-center gap-2 border-t border-border bg-surface-2 px-4 py-2 sm:px-6">
