@@ -8,7 +8,15 @@ export type CategoryMeta = {
 };
 
 export const CATEGORY_META: CategoryMeta[] = [
-  { name: "Vaske", icon: "🚿", unit: "stk", synonyms: ["vaske", "vask", "vasket", "vasker", "vaskene", "vasken"] },
+  {
+    name: "Vaske",
+    icon: "🚿",
+    unit: "stk",
+    synonyms: [
+      "vaske", "vask", "vasket", "vasker", "vaskene", "vasken",
+      "trailer", "trailere", "traileren", "trailerne",
+    ],
+  },
   { name: "Juletræer", icon: "🎄", unit: "stk", synonyms: ["juletræer", "juletræ", "juletræerne", "juletræet"] },
   { name: "Paller", icon: "📦", unit: "paller", synonyms: ["paller", "palle", "pallerne", "palletter"] },
   { name: "Kødkroge", icon: "🪝", unit: "stk", synonyms: ["kødkroge", "kødkrog", "krog", "kroge", "kødkrogene"] },

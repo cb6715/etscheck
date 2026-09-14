@@ -110,10 +110,16 @@ export function buildAssistantReply(
   simulation: SimulationResult,
   opts: { isFirstToday: boolean; singleUpdateOnly: boolean }
 ): string {
-  const { categories, touchedCategories, plainTasks } = simulation;
+  const { categories, touchedCategories, plainTasks, notes } = simulation;
   const catList = touchedCategories
     .map((name) => categories.get(name))
     .filter((c): c is SimulatedCategoryState => !!c);
+
+  // Never claim success when nothing was actually parsed out of the
+  // message — say so plainly instead, with an example of phrasing that works.
+  if (catList.length === 0 && plainTasks.length === 0 && notes.length === 0) {
+    return "Jeg kunne desværre ikke finde noget at opdatere i det. Prøv fx \"13 vaske fra haven\" eller \"skal tømme skraldespande\".";
+  }
 
   if (opts.singleUpdateOnly && catList.length === 1 && plainTasks.length === 0) {
     const c = catList[0];

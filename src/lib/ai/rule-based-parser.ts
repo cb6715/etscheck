@@ -15,6 +15,19 @@ const DONE_VERBS = [
 ];
 const DONE_ADJ = ["færdig", "færdige", "klar", "klare"];
 const INCREASE_VERBS = ["kommer", "forventer", "får", "ankommer"];
+// Broad net of common Danish task-instruction verbs — used to recognize a
+// clause as "something to do" even when it doesn't match a known category
+// keyword, so it still becomes a plain task instead of being silently
+// dropped. Deliberately wide: a false positive just adds an easily-deleted
+// task, while a false negative loses the instruction entirely.
+const ACTION_VERBS = [
+  "skal", "pak", "pakke", "ryd", "rydde", "sæt", "sætte", "klargør", "klargøre",
+  "tjek", "tjekke", "check", "tøm", "tømme", "fej", "feje", "fejning",
+  "vask", "vaske", "rens", "rense", "rengør", "rengøre", "hent", "hente",
+  "flyt", "flytte", "brug", "bruge", "byg", "bygge", "monter", "montere",
+  "skift", "skifte", "fyld", "fylde", "kontroller", "kontrollere", "ordn", "ordne",
+];
+const FILLER_PREFIXES_FOR_SPLIT = /\s+((?:vi|jeg)\s+skal\s+)/gi;
 const NATHOLD_WORDS = ["nathold", "natholdet", "natholdets"];
 const DAGHOLD_WORDS = ["daghold", "dagholdet", "dagvagten"];
 const FILLER_PREFIXES = [
@@ -37,8 +50,12 @@ function splitClauses(text: string): string[] {
 
   const clauses: string[] = [];
   for (const s of sentences) {
-    const parts = s
-      .split(/\s*,\s*|\s+og\s+/i)
+    // People often run several instructions together without punctuation
+    // ("...i dag vi skal tømme skraldespande") — treat "vi/jeg skal" as an
+    // implicit clause boundary too, in addition to commas and " og ".
+    const withBoundaries = s.replace(FILLER_PREFIXES_FOR_SPLIT, "|||$1");
+    const parts = withBoundaries
+      .split(/\s*\|\|\|\s*|\s*,\s*|\s+og\s+/i)
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
     clauses.push(...parts);
@@ -180,13 +197,17 @@ export function parseWithRules(text: string, context: ParseContext): ParseResult
       continue;
     }
 
-    if (explicitCategory && number === null && /\b(skal|pak|ryd|sæt|klargør|tjek)/i.test(lower)) {
-      actions.push({ type: "create_plain_task", title: cleanTitle(clause), category: explicitCategory });
-      lastCategory = explicitCategory;
+    // An actionable instruction ("skal", "tøm", "feje", ...) becomes a
+    // plain task even without a recognized category keyword — falls back
+    // to "På plads" rather than being silently dropped.
+    if (number === null && hasAny(lower, ACTION_VERBS)) {
+      const category = explicitCategory ?? "På plads";
+      actions.push({ type: "create_plain_task", title: cleanTitle(clause), category });
+      lastCategory = category;
       continue;
     }
 
-    // fully generic sentence with a verb-like structure but no known category/number: ignore quietly
+    // fully generic sentence with no recognizable verb, category or number: ignore quietly
   }
 
   const createCount = actions.filter(
