@@ -100,6 +100,21 @@ export function WageBar() {
     }
   }, [context, live]);
 
+  // ATP-bidrag trukket fra brutto for perioden så langt — vist ved siden af
+  // nettobeløbet for gennemsigtighed. Beregnet ud fra samme kumulative
+  // arbejdstimer som nettotallet (trukket fra FØR AM-bidrag/A-skat
+  // beregnes, jf. det rigtige lønsedler dette er kalibreret imod).
+  const totalAtp = useMemo(() => {
+    if (!context) return null;
+    try {
+      const cumulativePaidSeconds = context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0);
+      return (cumulativePaidSeconds / 3600) * context.config.atpRatePerHour;
+    } catch (e) {
+      console.error("Wage ATP calc failed:", e);
+      return null;
+    }
+  }, [context, live]);
+
   function handleCheckIn() {
     setActionError("");
     startTransition(async () => {
@@ -192,6 +207,14 @@ export function WageBar() {
           >
             {formatKr(totalNet)}
           </span>
+          {totalAtp !== null && (
+            <span
+              className="shrink-0 font-mono text-xs font-medium tabular-nums text-muted"
+              title="ATP-bidrag trukket fra denne periode (fratrukket før AM-bidrag og A-skat beregnes)"
+            >
+              ATP {formatKr(totalAtp)}
+            </span>
+          )}
           <span className="hidden shrink-0 items-center gap-1 text-xs text-muted sm:flex">
             netto denne periode
             {checkedIn && live && (
