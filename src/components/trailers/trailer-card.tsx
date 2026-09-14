@@ -2,11 +2,11 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Droplets, AlertTriangle, MoreVertical } from "lucide-react";
+import { Droplets, AlertTriangle, MoreVertical, Trash2 } from "lucide-react";
 import { Card, Badge } from "@/components/ui/primitives";
 import { TrailerStatusBadge } from "./trailer-status-badge";
 import { MarkWashedModal } from "./mark-washed-modal";
-import { updateTrailerStatus } from "@/lib/actions/trailers";
+import { updateTrailerStatus, deleteTrailer } from "@/lib/actions/trailers";
 import type { Prisma, TrailerStatus } from "@prisma/client";
 
 type TrailerWithRelations = Prisma.TrailerGetPayload<{
@@ -40,6 +40,12 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
       return;
     }
     startTransition(() => updateTrailerStatus(trailer.id, status));
+  }
+
+  function handleDelete() {
+    setMenuOpen(false);
+    if (!confirm(`Slet Trailer #${trailer.number}? Vaskehistorikken bevares, men traileren forsvinder fra listen.`)) return;
+    startTransition(() => deleteTrailer(trailer.id));
   }
 
   return (
@@ -84,6 +90,13 @@ export function TrailerCard({ trailer }: { trailer: TrailerWithRelations }) {
                     {opt.label}
                   </button>
                 ))}
+                <div className="border-t border-border" />
+                <button
+                  onClick={handleDelete}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-danger hover:bg-danger-bg"
+                >
+                  <Trash2 size={14} /> Slet trailer
+                </button>
               </div>
             </>
           )}

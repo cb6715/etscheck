@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Droplets, StickyNote } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Droplets, StickyNote, Trash2 } from "lucide-react";
 import { Button, Modal, inputClass } from "@/components/ui/primitives";
 import { MarkWashedModal } from "@/components/trailers/mark-washed-modal";
-import { addTrailerNote } from "@/lib/actions/trailers";
+import { addTrailerNote, deleteTrailer } from "@/lib/actions/trailers";
 
 export function TrailerActions({
   trailerId,
@@ -16,10 +17,19 @@ export function TrailerActions({
   note: string | null;
   company: string | null;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [noteOpen, setNoteOpen] = useState(false);
   const [washModalOpen, setWashModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
+
+  function handleDelete() {
+    if (!confirm(`Slet Trailer #${trailerNumber}? Vaskehistorikken bevares, men traileren forsvinder fra listen.`)) return;
+    startTransition(async () => {
+      await deleteTrailer(trailerId);
+      router.push("/vask");
+    });
+  }
 
   return (
     <div className="flex gap-3">
@@ -31,6 +41,14 @@ export function TrailerActions({
       </Button>
       <Button variant="secondary" onClick={() => setNoteOpen(true)} className="flex items-center gap-2">
         <StickyNote size={18} /> Note
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={handleDelete}
+        disabled={pending}
+        className="flex items-center gap-2 text-danger"
+      >
+        <Trash2 size={18} />
       </Button>
 
       <Modal open={noteOpen} onClose={() => setNoteOpen(false)} title="Tilføj note">
