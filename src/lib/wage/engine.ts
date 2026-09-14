@@ -217,6 +217,28 @@ export function netForCumulative(cumulativeGross: number, cumulativePaidSeconds:
  * period — correctly prorates across the skattefradrag threshold if the
  * increment straddles it.
  */
+export type FeriepengeAmount = { brutto: number; netto: number };
+
+/**
+ * Optjente feriepenge for `cumulativeGross` kr brutto optjent i perioden —
+ * 12,5% af bruttolønnen (feriepenge-berettiget løn = brutto FØR ATP er
+ * trukket fra), beskattet for sig selv med samme AM-bidrag/A-skat satser
+ * som den øvrige løn. Feriepenge deler ikke skattefradraget med den
+ * løbende løn, og der trækkes ikke ATP af feriepenge — kun af den
+ * udbetalte timeløn. Kalibreret mod en rigtig lønseddel: 15.372,50 kr
+ * brutto → 1.921,56 kr feriepenge brutto → 989,56 kr netto.
+ */
+export function feriepengeForGross(
+  cumulativeGross: number,
+  config: Pick<WageConfig, "amBidragPct" | "taxRatePct">
+): FeriepengeAmount {
+  const FERIEPENGE_PCT = 0.125;
+  const brutto = cumulativeGross * FERIEPENGE_PCT;
+  const amBidrag = brutto * config.amBidragPct;
+  const askat = (brutto - amBidrag) * config.taxRatePct;
+  return { brutto, netto: brutto - amBidrag - askat };
+}
+
 export function netForIncrement(
   priorGross: number,
   priorPaidSeconds: number,

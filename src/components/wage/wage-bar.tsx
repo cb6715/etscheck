@@ -11,7 +11,7 @@ import {
   updateCheckInTime,
   type WageContext,
 } from "@/lib/actions/worksessions";
-import { computeIntervalEarnings, netForCumulative } from "@/lib/wage/engine";
+import { computeIntervalEarnings, netForCumulative, feriepengeForGross } from "@/lib/wage/engine";
 import { WAGE_CONTEXT_CHANGED_EVENT } from "@/lib/wage/events";
 
 function formatKr(n: number): string {
@@ -100,17 +100,17 @@ export function WageBar() {
     }
   }, [context, live]);
 
-  // ATP-bidrag trukket fra brutto for perioden så langt — vist ved siden af
-  // nettobeløbet for gennemsigtighed. Beregnet ud fra samme kumulative
-  // arbejdstimer som nettotallet (trukket fra FØR AM-bidrag/A-skat
-  // beregnes, jf. det rigtige lønsedler dette er kalibreret imod).
-  const totalAtp = useMemo(() => {
+  // Optjente feriepenge (netto) for perioden så langt — vist ved siden af
+  // nettobeløbet. 12,5% af bruttolønnen optjent indtil nu, beskattet for
+  // sig selv — penge der bliver stående til senere (ferie/jobskifte), ikke
+  // en del af "til udbetaling"-tallet, men stadig noget man har optjent.
+  const totalFeriepenge = useMemo(() => {
     if (!context) return null;
     try {
-      const cumulativePaidSeconds = context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0);
-      return (cumulativePaidSeconds / 3600) * context.config.atpRatePerHour;
+      const cumulativeGross = context.priorPeriodGross + (live?.grossAmount ?? 0);
+      return feriepengeForGross(cumulativeGross, context.config).netto;
     } catch (e) {
-      console.error("Wage ATP calc failed:", e);
+      console.error("Wage feriepenge calc failed:", e);
       return null;
     }
   }, [context, live]);
@@ -207,12 +207,12 @@ export function WageBar() {
           >
             {formatKr(totalNet)}
           </span>
-          {totalAtp !== null && (
+          {totalFeriepenge !== null && (
             <span
               className="shrink-0 font-mono text-xs font-medium tabular-nums text-muted"
-              title="ATP-bidrag trukket fra denne periode (fratrukket før AM-bidrag og A-skat beregnes)"
+              title="Optjente feriepenge (netto) denne periode — 12,5% af bruttolønnen, beskattet for sig selv. Udbetales ikke nu, men står til gode til ferie/jobskifte."
             >
-              ATP {formatKr(totalAtp)}
+              Feriepenge {formatKr(totalFeriepenge)}
             </span>
           )}
           <span className="hidden shrink-0 items-center gap-1 text-xs text-muted sm:flex">
