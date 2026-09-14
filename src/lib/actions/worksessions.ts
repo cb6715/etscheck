@@ -164,6 +164,24 @@ export async function checkOut(): Promise<WageContext> {
   return getWageContext();
 }
 
+// Corrects the currently open session's check-in time (e.g. it defaulted
+// to "now" because of a technical issue instead of when work actually
+// started). Clamped to not be in the future.
+export async function updateCheckInTime(newCheckInAt: Date): Promise<WageContext> {
+  const userId = await getCurrentUserId();
+  const session = await prisma.workSession.findFirst({
+    where: { userId, checkOutAt: null },
+    orderBy: { checkInAt: "desc" },
+  });
+  if (session) {
+    const now = new Date();
+    const clamped = newCheckInAt > now ? now : newCheckInAt;
+    await prisma.workSession.update({ where: { id: session.id }, data: { checkInAt: clamped } });
+  }
+  revalidatePath("/");
+  return getWageContext();
+}
+
 export type HistoricalWeek = {
   id: string;
   weekStart: string;

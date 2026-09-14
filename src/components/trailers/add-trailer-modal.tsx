@@ -80,8 +80,8 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
   }
 
   function submit() {
-    if (!number.trim()) {
-      setError("Trailernummer mangler.");
+    if (!number.trim() && !licensePlate.trim()) {
+      setError("Angiv enten trailernummer eller nummerplade.");
       return;
     }
     startTransition(async () => {
@@ -130,12 +130,12 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
       </button>
       {scanNotice && <p className="mb-3 text-sm font-medium text-success">{scanNotice}</p>}
 
-      <Field label="Trailer nummer" required>
+      <Field label="Trailer nummer">
         <input
           className={inputClass}
           value={number}
           onChange={(e) => setNumber(e.target.value)}
-          placeholder="F.eks. 102"
+          placeholder="F.eks. 102 — valgfri hvis du har nummerpladen"
         />
       </Field>
       <Field label="Firma">

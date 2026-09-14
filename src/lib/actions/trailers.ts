@@ -38,10 +38,11 @@ export type CreateTrailerInput = {
 };
 
 export async function createTrailer(input: CreateTrailerInput) {
-  if (!input.number.trim()) throw new Error("Trailernummer mangler");
+  const number = input.number.trim() || input.licensePlate?.trim();
+  if (!number) throw new Error("Angiv enten trailernummer eller nummerplade.");
   const trailer = await prisma.trailer.create({
     data: {
-      number: input.number.trim(),
+      number,
       licensePlate: input.licensePlate?.trim() || null,
       type: input.type?.trim() || null,
       note: input.note?.trim() || null,

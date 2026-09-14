@@ -6,7 +6,10 @@ export type TrailerOcrResult = {
   company?: "DFDS" | "DSV";
 };
 
-const PLATE_REGEX = /\b([A-ZÆØÅ]{2})\s?(\d{2})\s?(\d{3})\b/;
+// Tolerant of extra/odd whitespace or a hyphen between groups — OCR often
+// inserts inconsistent gaps (or none, or a line break) between the letter
+// and digit groups of a plate.
+const PLATE_REGEX = /\b([A-ZÆØÅ]{2})[\s-]*(\d{2})[\s-]*(\d{3})\b/;
 const NUMBER_REGEX = /\b(\d{3,6})\b/g;
 
 // Self-hosted (not the jsdelivr CDN tesseract.js defaults to) so OCR keeps
