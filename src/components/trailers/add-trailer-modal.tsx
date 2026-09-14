@@ -4,7 +4,6 @@ import { useRef, useState, useTransition } from "react";
 import { Camera, Loader2 } from "lucide-react";
 import { Modal, Field, inputClass, Button } from "@/components/ui/primitives";
 import { createTrailer, lookupTrailerByPlate } from "@/lib/actions/trailers";
-import { loadImageToCanvas, recognizeTrailerImage } from "@/lib/trailer-ocr";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 
 export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -40,6 +39,9 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
     try {
       // Runs entirely in the browser (Tesseract.js/WASM) — the photo is
       // never uploaded anywhere, just read into a canvas and discarded.
+      // Loaded on demand so the ~30KB OCR wrapper never ships to visitors
+      // who don't use the camera button.
+      const { loadImageToCanvas, recognizeTrailerImage } = await import("@/lib/trailer-ocr");
       const canvas = await loadImageToCanvas(file);
       const result = await recognizeTrailerImage(canvas);
 
