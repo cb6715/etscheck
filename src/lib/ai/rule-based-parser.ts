@@ -14,7 +14,10 @@ const DONE_VERBS = [
   "sat", "lagt", "udført", "ordnet", "gjort",
 ];
 const DONE_ADJ = ["færdig", "færdige", "klar", "klare"];
-const INCREASE_VERBS = ["kommer", "forventer", "får", "ankommer"];
+const INCREASE_VERBS = [
+  "kommer", "forventer", "får", "ankommer",
+  "ekstra", "extra", "mere", "yderligere", "endnu",
+];
 // Broad net of common Danish task-instruction verbs — used to recognize a
 // clause as "something to do" even when it doesn't match a known category
 // keyword, so it still becomes a plain task instead of being silently
@@ -172,7 +175,12 @@ export function parseWithRules(text: string, context: ParseContext): ParseResult
       }
     }
 
-    if (isDone && number !== null) {
+    // "de sidste 2 trailere er færdige" — a done-adjective ("færdige") with a
+    // number is reporting N completions, same as a done-verb with a number;
+    // previously fell through and got misread as a total-setting statement
+    // (harmless no-op before create_quantity_item started overwriting an
+    // existing total, actively wrong after).
+    if ((isDone || isDoneAdj) && number !== null) {
       const resolved = resolveCategory(explicitCategory, lastCategory, context.existingItems);
       if (resolved.category) {
         actions.push({ type: "increment_done", category: resolved.category, delta: number, shift });

@@ -114,9 +114,24 @@ async function applyActions(
   for (const action of actions) {
     switch (action.type) {
       case "create_quantity_item": {
+        // Restating "N <category>" always sets the total to N — including
+        // when a task already exists (a correction, e.g. "12 vaske" after
+        // "11 vaske" turned out to be one short). Silently no-op'ing here
+        // (the old behaviour) meant the assistant said "Opdateret" while
+        // changing nothing at all whenever the total was already set.
         const task = await findOrCreateQuantityTask(userId, action.category, day, briefingId, action.total);
-        if (!task.quantityTotal) {
-          await prisma.task.update({ where: { id: task.id }, data: { quantityTotal: action.total } });
+        if (task.quantityTotal !== action.total) {
+          const done = task.quantityDone ?? 0;
+          const clampedDone = Math.min(done, action.total);
+          await prisma.task.update({
+            where: { id: task.id },
+            data: {
+              quantityTotal: action.total,
+              quantityDone: clampedDone,
+              completed: clampedDone >= action.total && action.total > 0,
+              completedAt: clampedDone >= action.total && action.total > 0 ? new Date() : null,
+            },
+          });
         }
         break;
       }

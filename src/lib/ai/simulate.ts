@@ -67,8 +67,11 @@ export function simulateActions(
   for (const action of actions) {
     switch (action.type) {
       case "create_quantity_item": {
+        // Restating "N <category>" always sets the total to N, even when
+        // one already exists (a correction) — matches applyActions.
         const state = ensure(action.category);
-        if (state.total === 0) state.total = action.total;
+        state.total = action.total;
+        state.done = Math.min(state.done, action.total);
         touched.add(action.category);
         break;
       }
