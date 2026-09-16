@@ -24,11 +24,27 @@ const MONTHS_DA = [
 ];
 const WEEKDAY_HEADERS = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
 
+// A calendar cell represents a calendar DAY, not a moment in time — building
+// it as `new Date(y, m, d)` (the browser's own local timezone) and then
+// handing that Date to a server action is what caused "today" to show up
+// under the wrong cell: Next.js serializes it to its absolute instant, the
+// server (UTC) re-derives its OWN day boundary from that instant, and a
+// Danish local midnight lands in the PREVIOUS UTC day. Anchoring every
+// calendar-day Date at UTC midnight instead sidesteps that entirely — for
+// Denmark's always-positive UTC offset, `.getDate()`/`.getDay()` still read
+// back the intended day in the browser, and the server's own UTC-based
+// startOfDay() leaves a UTC-midnight instant untouched, exactly matching
+// how every task/briefing "day" key is already computed server-side.
+function dayKey(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day));
+}
+
 export function CalendarClient() {
   const today = new Date();
+  const todayKey = dayKey(today.getFullYear(), today.getMonth(), today.getDate());
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [counts, setCounts] = useState<Record<string, { total: number; done: number }>>({});
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(todayKey);
   const [dayTasks, setDayTasks] = useState<TaskWithRelations[]>([]);
   const [dayMessages, setDayMessages] = useState<BriefingMessage[]>([]);
   const [dayWashes, setDayWashes] = useState<TrailerWashWithTrailer[]>([]);
@@ -61,7 +77,7 @@ export function CalendarClient() {
 
   const cells: (Date | null)[] = [
     ...Array(startOffset).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1)),
+    ...Array.from({ length: daysInMonth }, (_, i) => dayKey(year, month, i + 1)),
   ];
 
   return (
@@ -101,7 +117,7 @@ export function CalendarClient() {
             if (!date) return <div key={idx} />;
             const key = date.toISOString().slice(0, 10);
             const info = counts[key];
-            const isToday = isSameDay(date, today);
+            const isToday = isSameDay(date, todayKey);
             const isSelected = isSameDay(date, selectedDate);
             return (
               <button
