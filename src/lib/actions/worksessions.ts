@@ -334,3 +334,53 @@ export async function seedKnownHistoricalWeeks(): Promise<{ inserted: number; sk
   revalidatePath("/");
   return { inserted, skipped };
 }
+
+export type WeekHoursDay = {
+  id: string;
+  checkInAt: string;
+  checkOutAt: string | null;
+  hours: number;
+  isManualEntry: boolean;
+  isOpen: boolean;
+};
+
+export type WeekHoursSummary = {
+  weekStart: string;
+  weekEnd: string;
+  days: WeekHoursDay[];
+  totalHours: number;
+};
+
+// Every worked session (real tjek-ind/ud, still-open, and manually logged)
+// falling in the ISO week (Mon-Sun) containing `referenceDate` — a simple
+// "hvor mange timer har jeg lavet denne uge" view, distinct from the wage
+// bar's kr-focused totals.
+export async function getWeekHours(referenceDate: Date = new Date()): Promise<WeekHoursSummary> {
+  const userId = await getCurrentUserId();
+  const { start, end } = getWeekRange(referenceDate);
+  const sessions = await prisma.workSession.findMany({
+    where: { userId, checkInAt: { gte: start, lte: end } },
+    orderBy: { checkInAt: "asc" },
+  });
+
+  const now = Date.now();
+  const days: WeekHoursDay[] = sessions.map((s) => {
+    const isOpen = !s.checkOutAt;
+    const hours = isOpen ? (now - s.checkInAt.getTime()) / 3600000 : (s.paidSeconds ?? 0) / 3600;
+    return {
+      id: s.id,
+      checkInAt: s.checkInAt.toISOString(),
+      checkOutAt: s.checkOutAt ? s.checkOutAt.toISOString() : null,
+      hours,
+      isManualEntry: s.isManualEntry,
+      isOpen,
+    };
+  });
+
+  return {
+    weekStart: start.toISOString(),
+    weekEnd: end.toISOString(),
+    days,
+    totalHours: days.reduce((sum, d) => sum + d.hours, 0),
+  };
+}

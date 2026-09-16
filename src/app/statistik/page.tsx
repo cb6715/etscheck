@@ -1,8 +1,16 @@
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Clock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/current-user";
-import { getWeekRange, getMonthRange } from "@/lib/date";
+import { getWeekRange, getMonthRange, formatShortDate, formatTime } from "@/lib/date";
+import { getWeekHours, type WeekHoursSummary } from "@/lib/actions/worksessions";
 import { Card } from "@/components/ui/primitives";
+
+function formatHours(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m > 0 ? `${h}t ${m}min` : `${h}t`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +31,10 @@ export default async function StatistikPage() {
   const week = getWeekRange(now);
   const month = getMonthRange(now);
 
-  const [weekStats, monthStats] = await Promise.all([
+  const [weekStats, monthStats, weekHours] = await Promise.all([
     getStats(userId, week.start, week.end),
     getStats(userId, month.start, month.end),
+    getWeekHours(now),
   ]);
 
   return (
@@ -36,9 +45,48 @@ export default async function StatistikPage() {
         </h1>
       </header>
 
+      <WeekHoursBlock data={weekHours} />
+
       <StatBlock title="Denne uge" stats={weekStats} />
       <StatBlock title="Denne måned" stats={monthStats} />
     </div>
+  );
+}
+
+function WeekHoursBlock({ data }: { data: WeekHoursSummary }) {
+  return (
+    <section>
+      <h2 className="mb-3 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-muted">
+        <Clock size={14} /> Mine timer denne uge
+      </h2>
+      <Card className="p-4">
+        {data.days.length === 0 ? (
+          <p className="text-sm text-muted">Ingen timer registreret denne uge endnu.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {data.days.map((d) => (
+              <div key={d.id} className="flex items-center justify-between py-2.5 text-sm">
+                <div>
+                  <p className="font-semibold">{formatShortDate(new Date(d.checkInAt))}</p>
+                  <p className="text-xs text-muted">
+                    {d.isManualEntry
+                      ? "Manuelt indtastet"
+                      : `${formatTime(new Date(d.checkInAt))}${
+                          d.checkOutAt ? ` – ${formatTime(new Date(d.checkOutAt))}` : d.isOpen ? " – nu (i gang)" : ""
+                        }`}
+                  </p>
+                </div>
+                <span className="font-bold tabular-nums">{formatHours(d.hours)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+          <span className="text-sm font-bold uppercase tracking-wide text-muted">I alt</span>
+          <span className="text-xl font-extrabold tabular-nums text-accent">{formatHours(data.totalHours)}</span>
+        </div>
+      </Card>
+    </section>
   );
 }
 
