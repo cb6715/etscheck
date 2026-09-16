@@ -252,6 +252,36 @@ export async function addManualQuantityTask(categoryName: string, total: number)
   revalidatePath("/planlaegning");
 }
 
+// Called whenever a trailer wash is actually completed (Vaskeplan) — advances
+// today's "Vaske" quantity task by one, if one exists, so saying "jeg har 10
+// vaske fra haven" and then actually washing trailers keeps the done-count in
+// sync automatically instead of needing a separate manual tap for every wash.
+export async function recordVaskeCompleted(userId: string): Promise<void> {
+  const day = startOfDay(new Date());
+  const task = await findOpenQuantityTask(userId, "Vaske", day);
+  if (!task) return;
+
+  const total = task.quantityTotal ?? 0;
+  const before = task.quantityDone ?? 0;
+  const after = total > 0 ? Math.min(total, before + 1) : before + 1;
+  if (after === before) return;
+
+  await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      quantityDone: after,
+      completed: total > 0 && after >= total,
+      completedAt: total > 0 && after >= total ? new Date() : null,
+    },
+  });
+  await prisma.quantityLogEntry.create({
+    data: { taskId: task.id, userId, delta: after - before, shift: "DAGHOLD" },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/planlaegning");
+}
+
 export async function getQuantityTasksForDay(day: Date) {
   const userId = await getCurrentUserId();
   const tasks = await prisma.task.findMany({

@@ -7,6 +7,7 @@ import { TrailerStatus } from "@prisma/client";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 import { normalizePlate } from "@/lib/plate";
 import { copenhagenStartOfDay } from "@/lib/timezone";
+import { recordVaskeCompleted } from "@/lib/actions/briefing";
 
 // Trailers get washed every day, not once — a trailer marked "Vasket"
 // yesterday shouldn't still show as washed today. Resets it back to
@@ -104,6 +105,7 @@ export async function markTrailerWashed(trailerId: string, input: MarkWashedInpu
       plombeNumber: input.company === "DFDS" ? input.plombeNumber?.trim() || null : null,
     },
   });
+  await recordVaskeCompleted(userId);
 
   revalidatePath("/vask");
   revalidatePath(`/vask/${trailerId}`);
@@ -121,6 +123,7 @@ export async function updateTrailerStatus(trailerId: string, status: TrailerStat
     await prisma.trailerWash.create({
       data: { trailerId, userId, note: note?.trim() || null },
     });
+    await recordVaskeCompleted(userId);
   }
 
   if (status === TrailerStatus.PROBLEM && note?.trim()) {
