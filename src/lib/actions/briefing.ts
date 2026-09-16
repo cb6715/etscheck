@@ -12,6 +12,8 @@ import { simulateActions, buildAssistantReply } from "@/lib/ai/simulate";
 import type { BriefingAction, ExistingItemContext, ShiftValue } from "@/lib/ai/briefing-types";
 import { Prisma } from "@prisma/client";
 
+const DAILY_COUNTER_CATEGORIES = ["Tankninger", "Trailerreparationer"];
+
 type PendingClarification = {
   question: string;
   pendingAction:
@@ -250,6 +252,54 @@ export async function addManualQuantityTask(categoryName: string, total: number)
 
   revalidatePath("/");
   revalidatePath("/planlaegning");
+}
+
+// Simple daily +/- counters (Tankninger, Trailerreparationer) shown directly
+// on the homepage — no target/goal, no modal, just tap + or -. Backed by the
+// same Task/quantityDone fields as the goal-based briefing quantity tasks
+// (so a wash-linked or chat-set total for the same category still adds up
+// correctly), but the tile itself only ever shows/changes the raw count.
+export async function getDailyCounters(): Promise<{ category: string; count: number }[]> {
+  const userId = await getCurrentUserId();
+  const day = startOfDay(new Date());
+  const results = await Promise.all(
+    DAILY_COUNTER_CATEGORIES.map(async (category) => {
+      const task = await findOpenQuantityTask(userId, category, day);
+      return { category, count: task?.quantityDone ?? 0 };
+    })
+  );
+  return results;
+}
+
+export async function bumpDailyCounter(category: string, delta: number): Promise<number> {
+  const userId = await getCurrentUserId();
+  const day = startOfDay(new Date());
+  const existing = await findOpenQuantityTask(userId, category, day);
+
+  if (!existing) {
+    const briefing = await getOrCreateTodayBriefing(userId, day);
+    const next = Math.max(0, delta);
+    const created = await findOrCreateQuantityTask(userId, category, day, briefing.id, next);
+    if (created.quantityDone !== next) {
+      await prisma.task.update({ where: { id: created.id }, data: { quantityDone: next } });
+    }
+    revalidatePath("/");
+    revalidatePath("/planlaegning");
+    return next;
+  }
+
+  const before = existing.quantityDone ?? 0;
+  const next = Math.max(0, before + delta);
+  await prisma.task.update({
+    where: { id: existing.id },
+    // Keep quantityTotal at least as large as quantityDone so this stays
+    // sane if the same category also shows up as a goal-based progress
+    // card elsewhere (e.g. set via the briefing chat).
+    data: { quantityDone: next, quantityTotal: Math.max(existing.quantityTotal ?? 0, next) },
+  });
+  revalidatePath("/");
+  revalidatePath("/planlaegning");
+  return next;
 }
 
 // Called whenever a trailer wash is actually completed (Vaskeplan) — advances

@@ -4,10 +4,11 @@ import { ensureTodayTasksGenerated, getTasksForDay } from "@/lib/actions/tasks";
 import { getTrailers } from "@/lib/actions/trailers";
 import { getTodayVisits } from "@/lib/actions/drivein";
 import { getOpenProblems } from "@/lib/actions/misc";
-import { getQuantityTasksForDay } from "@/lib/actions/briefing";
+import { getQuantityTasksForDay, getDailyCounters } from "@/lib/actions/briefing";
 import { Card, Badge, ProgressBar, EmptyState, Button } from "@/components/ui/primitives";
 import { TaskItem } from "@/components/tasks/task-item";
 import { WorkPlanHero } from "@/components/briefing/work-plan-hero";
+import { DailyCounterTile } from "@/components/briefing/daily-counter-tile";
 import { formatLongDate, greeting, formatTime } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
@@ -16,12 +17,13 @@ export default async function DashboardPage() {
   const now = new Date();
   await ensureTodayTasksGenerated(now);
 
-  const [tasks, trailers, visits, problems, quantityTasks] = await Promise.all([
+  const [tasks, trailers, visits, problems, quantityTasks, dailyCounters] = await Promise.all([
     getTasksForDay(now),
     getTrailers(),
     getTodayVisits(),
     getOpenProblems(),
     getQuantityTasksForDay(now),
+    getDailyCounters(),
   ]);
 
   const doneTasks = tasks.filter((t) => t.completed).length;
@@ -64,6 +66,19 @@ export default async function DashboardPage() {
           </div>
         </Card>
       )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <DailyCounterTile
+          category="Tankninger"
+          icon="⛽"
+          initialCount={dailyCounters.find((c) => c.category === "Tankninger")?.count ?? 0}
+        />
+        <DailyCounterTile
+          category="Trailerreparationer"
+          icon="🔧"
+          initialCount={dailyCounters.find((c) => c.category === "Trailerreparationer")?.count ?? 0}
+        />
+      </div>
 
       <WorkPlanHero tasks={quantityTasks} />
 
