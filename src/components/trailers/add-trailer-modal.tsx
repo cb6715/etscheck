@@ -1,22 +1,19 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { Camera, Loader2 } from "lucide-react";
+import { useState, useTransition } from "react";
 import { Modal, Field, inputClass, Button } from "@/components/ui/primitives";
 import { createTrailer, lookupTrailerByPlate } from "@/lib/actions/trailers";
 import { WASH_COMPANIES, type WashCompany } from "@/lib/wash-constants";
 
 export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [pending, startTransition] = useTransition();
-  const [scanning, setScanning] = useState(false);
   const [number, setNumber] = useState("");
   const [licensePlate, setLicensePlate] = useState("");
   const [type, setType] = useState("");
   const [note, setNote] = useState("");
   const [company, setCompany] = useState<WashCompany | "">("");
   const [error, setError] = useState("");
-  const [scanNotice, setScanNotice] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [plateNotice, setPlateNotice] = useState("");
 
   function reset() {
     setNumber("");
@@ -25,49 +22,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
     setNote("");
     setCompany("");
     setError("");
-    setScanNotice("");
-  }
-
-  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // never keep a reference to the captured photo
-    if (!file) return;
-
-    setScanning(true);
-    setError("");
-    setScanNotice("");
-    try {
-      // Runs entirely in the browser (Tesseract.js/WASM) — the photo is
-      // never uploaded anywhere, just read into a canvas and discarded.
-      // Loaded on demand so the ~30KB OCR wrapper never ships to visitors
-      // who don't use the camera button.
-      const { loadImageToCanvas, recognizeTrailerImage } = await import("@/lib/trailer-ocr");
-      const canvas = await loadImageToCanvas(file);
-      const result = await recognizeTrailerImage(canvas);
-
-      const found: string[] = [];
-      if (result.trailerNumber) {
-        setNumber(result.trailerNumber);
-        found.push(`nr. ${result.trailerNumber}`);
-      }
-      if (result.licensePlate) {
-        setLicensePlate(result.licensePlate);
-        found.push(`plade ${result.licensePlate}`);
-      }
-      if (result.company) {
-        setCompany(result.company);
-        found.push(result.company);
-      }
-      setScanNotice(
-        found.length > 0
-          ? `Genkendt: ${found.join(" · ")} — tjek og ret hvis nødvendigt.`
-          : "Kunne ikke genkende noget på billedet — udfyld manuelt."
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunne ikke læse billedet.");
-    } finally {
-      setScanning(false);
-    }
+    setPlateNotice("");
   }
 
   async function handlePlateBlur() {
@@ -75,7 +30,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
     const match = await lookupTrailerByPlate(licensePlate);
     if (match?.company === "DFDS" || match?.company === "DSV") {
       setCompany(match.company);
-      setScanNotice(`Genkendt fra tidligere: ${match.company}`);
+      setPlateNotice(`Genkendt fra tidligere: ${match.company}`);
     }
   }
 
@@ -104,38 +59,13 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
       }}
       title="Tilføj trailer"
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handlePhoto}
-      />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={scanning}
-        className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--accent-a40)] bg-[var(--accent-a05)] py-3 text-sm font-bold text-accent transition hover:bg-[var(--accent-a10)] disabled:opacity-60"
-      >
-        {scanning ? (
-          <>
-            <Loader2 size={18} className="animate-spin" /> Læser billede...
-          </>
-        ) : (
-          <>
-            <Camera size={18} /> Tag billede af trailer
-          </>
-        )}
-      </button>
-      {scanNotice && <p className="mb-3 text-sm font-medium text-success">{scanNotice}</p>}
-
       <Field label="Trailer nummer">
         <input
           className={inputClass}
           value={number}
           onChange={(e) => setNumber(e.target.value)}
           placeholder="F.eks. 102 — valgfri hvis du har nummerpladen"
+          autoFocus
         />
       </Field>
       <Field label="Firma">
@@ -165,6 +95,7 @@ export function AddTrailerModal({ open, onClose }: { open: boolean; onClose: () 
           placeholder="Valgfri"
         />
       </Field>
+      {plateNotice && <p className="mb-3 text-sm font-medium text-success">{plateNotice}</p>}
       <Field label="Type">
         <input
           className={inputClass}
