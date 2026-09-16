@@ -1,9 +1,9 @@
 "use client";
 
 import { useTransition } from "react";
-import { Minus, Plus, Moon } from "lucide-react";
+import { Minus, Plus, Moon, Trash2 } from "lucide-react";
 import { Card, ProgressBar } from "@/components/ui/primitives";
-import { adjustQuantityDone } from "@/lib/actions/briefing";
+import { adjustQuantityDone, deleteQuantityTask } from "@/lib/actions/briefing";
 import type { Prisma } from "@prisma/client";
 
 type TaskWithRelations = Prisma.TaskGetPayload<{
@@ -21,6 +21,11 @@ export function QuantityTaskCard({ task }: { task: TaskWithRelations }) {
     .filter((l) => l.shift === "NATHOLD")
     .reduce((sum, l) => sum + l.delta, 0);
 
+  function handleDelete() {
+    if (!confirm(`Slet "${task.category?.name ?? task.title}" (${done}/${total})? Kan ikke fortrydes.`)) return;
+    startTransition(() => deleteQuantityTask(task.id));
+  }
+
   return (
     <Card className="p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -28,9 +33,19 @@ export function QuantityTaskCard({ task }: { task: TaskWithRelations }) {
           <span className="text-lg">{task.category?.icon ?? "📋"}</span>
           {task.category?.name ?? task.title}
         </p>
-        <span className="text-sm font-semibold text-muted">
-          {done} / {total}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-muted">
+            {done} / {total}
+          </span>
+          <button
+            onClick={handleDelete}
+            disabled={pending}
+            className="text-muted transition hover:text-danger disabled:opacity-30"
+            title="Slet"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       <ProgressBar percent={percent} />

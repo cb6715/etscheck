@@ -510,6 +510,18 @@ export async function adjustQuantityDone(taskId: string, delta: number, shift: S
   revalidatePath("/planlaegning");
 }
 
+// Removes a wrongly-created quantity task (e.g. the parser got the count
+// wrong, or a duplicate was made) — there was previously no way to correct
+// or remove one at all short of editing the database directly.
+export async function deleteQuantityTask(taskId: string): Promise<void> {
+  const userId = await getCurrentUserId();
+  await prisma.task.updateMany({
+    where: { id: taskId, userId, isQuantityTask: true },
+    data: { deletedAt: new Date() },
+  });
+  revalidatePath("/");
+  revalidatePath("/planlaegning");
+}
 
 export type EndOfDaySummary = {
   plannedCount: number;
