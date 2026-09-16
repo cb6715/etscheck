@@ -9,32 +9,21 @@ import { normalizePlate } from "@/lib/plate";
 import { copenhagenStartOfDay } from "@/lib/timezone";
 import { recordVaskeCompleted } from "@/lib/actions/briefing";
 
-// Trailers get washed every day, not once — a trailer marked "Vasket"
-// yesterday shouldn't still show as washed today. Resets it back to
-// "Mangler" for display once its most recent TrailerWash falls before
-// today (Danish calendar day); the wash history itself is untouched and
-// stays visible in the calendar/stats.
-async function ensureDailyTrailerReset() {
-  const today = copenhagenStartOfDay(new Date());
-  const staleWashed = await prisma.trailer.findMany({
-    where: { status: TrailerStatus.VASKET, deletedAt: null },
-    include: { washes: { orderBy: { washedAt: "desc" }, take: 1 } },
-  });
-  const staleIds = staleWashed
-    .filter((t) => !t.washes[0] || t.washes[0].washedAt < today)
-    .map((t) => t.id);
-  if (staleIds.length > 0) {
-    await prisma.trailer.updateMany({
-      where: { id: { in: staleIds } },
-      data: { status: TrailerStatus.MANGLER },
-    });
-  }
-}
-
+// Vaskeplan is a view of TODAY's work, not a permanent trailer roster — a
+// trailer that isn't touched again (washed, edited, revived) after the day
+// it arrived shouldn't keep reappearing under "Mangler" on later days. Shows
+// only trailers touched today (createdAt/updatedAt covers created, edited,
+// status-changed and washed — all bump updatedAt) plus anything with a
+// still-open problem, which stays visible regardless of day. Older trailers
+// aren't deleted — they simply drop out of this view; their wash history
+// is still reachable via the calendar.
 export async function getTrailers() {
-  await ensureDailyTrailerReset();
+  const today = copenhagenStartOfDay(new Date());
   return prisma.trailer.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      OR: [{ updatedAt: { gte: today } }, { notes: { some: { isProblem: true, resolved: false } } }],
+    },
     include: {
       washes: { orderBy: { washedAt: "desc" }, take: 1 },
       notes: { where: { isProblem: true, resolved: false } },
@@ -44,13 +33,25 @@ export async function getTrailers() {
 }
 
 export async function getTrailerDetail(id: string) {
-  await ensureDailyTrailerReset();
   return prisma.trailer.findUnique({
     where: { id },
     include: {
       washes: { orderBy: { washedAt: "desc" }, include: { user: true } },
       notes: { orderBy: { createdAt: "desc" } },
     },
+  });
+}
+
+// All trailer washes recorded on a given calendar day, for the kalender
+// history view — trailers themselves drop out of the live Vaskeplan after
+// their day, but what got washed and when stays visible here.
+export async function getTrailerWashesForDay(day: Date) {
+  const start = copenhagenStartOfDay(day);
+  const end = copenhagenStartOfDay(new Date(start.getTime() + 25 * 60 * 60 * 1000));
+  return prisma.trailerWash.findMany({
+    where: { washedAt: { gte: start, lt: end } },
+    include: { trailer: true },
+    orderBy: { washedAt: "asc" },
   });
 }
 
@@ -66,16 +67,26 @@ export type CreateTrailerInput = {
 export async function createTrailer(input: CreateTrailerInput) {
   const number = input.number.trim() || input.licensePlate?.trim();
   if (!number) throw new Error("Angiv enten trailernummer eller nummerplade.");
-  const trailer = await prisma.trailer.create({
-    data: {
-      number,
-      licensePlate: input.licensePlate?.trim() || null,
-      type: input.type?.trim() || null,
-      note: input.note?.trim() || null,
-      status: input.status || TrailerStatus.MANGLER,
-      company: input.company || null,
-    },
-  });
+
+  const data = {
+    licensePlate: input.licensePlate?.trim() || null,
+    type: input.type?.trim() || null,
+    note: input.note?.trim() || null,
+    status: input.status || TrailerStatus.MANGLER,
+    company: input.company || null,
+  };
+
+  // Same physical trailer (e.g. a recurring DSV/DFDS number) coming back on
+  // a later day — "number" is unique, and it's still sitting in the DB from
+  // its last visit (just no longer shown, since that day has passed).
+  // Revive it into today's Vaskeplan instead of failing on the unique
+  // constraint: touching it bumps updatedAt, which is what makes it
+  // reappear in getTrailers().
+  const existing = await prisma.trailer.findFirst({ where: { number, deletedAt: null } });
+  const trailer = existing
+    ? await prisma.trailer.update({ where: { id: existing.id }, data })
+    : await prisma.trailer.create({ data: { number, ...data } });
+
   revalidatePath("/vask");
   revalidatePath("/");
   return trailer;

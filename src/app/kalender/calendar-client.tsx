@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Droplets } from "lucide-react";
 import clsx from "clsx";
 import { Card } from "@/components/ui/primitives";
 import { TaskItem } from "@/components/tasks/task-item";
 import { getMonthTaskCounts } from "@/lib/actions/calendar";
 import { getTasksForDay } from "@/lib/actions/tasks";
 import { getBriefingForDate } from "@/lib/actions/briefing";
+import { getTrailerWashesForDay } from "@/lib/actions/trailers";
 import { formatDayHeading, isSameDay, formatTime } from "@/lib/date";
 import type { Prisma, BriefingMessage } from "@prisma/client";
 
 type TaskWithRelations = Prisma.TaskGetPayload<{
   include: { checklistItems: true; category: true };
 }>;
+
+type TrailerWashWithTrailer = Prisma.TrailerWashGetPayload<{ include: { trailer: true } }>;
 
 const MONTHS_DA = [
   "Januar", "Februar", "Marts", "April", "Maj", "Juni",
@@ -28,6 +31,7 @@ export function CalendarClient() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [dayTasks, setDayTasks] = useState<TaskWithRelations[]>([]);
   const [dayMessages, setDayMessages] = useState<BriefingMessage[]>([]);
+  const [dayWashes, setDayWashes] = useState<TrailerWashWithTrailer[]>([]);
   const [loadingDay, setLoadingDay] = useState(false);
 
   useEffect(() => {
@@ -39,10 +43,12 @@ export function CalendarClient() {
     Promise.all([
       getTasksForDay(selectedDate),
       getBriefingForDate(selectedDate),
+      getTrailerWashesForDay(selectedDate),
     ])
-      .then(([t, briefing]) => {
+      .then(([t, briefing, washes]) => {
         setDayTasks(t as TaskWithRelations[]);
         setDayMessages(briefing?.messages ?? []);
+        setDayWashes(washes);
       })
       .finally(() => setLoadingDay(false));
   }, [selectedDate]);
@@ -141,6 +147,25 @@ export function CalendarClient() {
           </div>
         )}
       </section>
+
+      {dayWashes.length > 0 && (
+        <section>
+          <h2 className="mb-3 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-muted">
+            <Droplets size={14} /> Vasket denne dag
+          </h2>
+          <Card className="divide-y divide-border">
+            {dayWashes.map((w) => (
+              <div key={w.id} className="flex items-center justify-between p-3 text-sm">
+                <span className="font-semibold">
+                  Trailer #{w.trailer.number}
+                  {w.company && <span className="ml-1.5 text-xs font-medium text-muted">{w.company}</span>}
+                </span>
+                <span className="text-xs text-muted">{formatTime(new Date(w.washedAt))}</span>
+              </div>
+            ))}
+          </Card>
+        </section>
+      )}
 
       {dayMessages.length > 0 && (
         <section>
