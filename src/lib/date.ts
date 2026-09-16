@@ -1,11 +1,19 @@
-// Danish-audience date formatting/boundaries — all anchored to Europe/
-// Copenhagen wall-clock time via src/lib/timezone.ts, NOT the executing
-// runtime's local timezone. This matters because these functions run both
-// in the browser (Danish local time) AND on the server (Netlify runs UTC):
-// a checkInAt stored as 04:33 UTC is 06:33 in Denmark, and naive
-// date.getHours()/.getDate() would silently show the wrong one depending on
-// which side rendered it.
-import { zonedParts, copenhagenStartOfDay, addCalendarDays } from "./timezone";
+// Danish-audience date formatting for TEXT DISPLAY is anchored to Europe/
+// Copenhagen wall-clock time via src/lib/timezone.ts (see formatTime etc.
+// below) — a checkInAt stored as 04:33 UTC is 06:33 in Denmark, and naive
+// date.getHours() would show the wrong one depending on whether the browser
+// or a UTC server rendered it.
+//
+// startOfDay/getWeekRange/getMonthRange are deliberately NOT timezone-
+// corrected: they're used throughout the app as exact-match DB keys
+// (Task.scheduledFor, DailyBriefing.date) against rows already stored using
+// this runtime-local convention. Changing their boundary shifts every
+// lookup by the local UTC offset and instantly orphans all of today's
+// existing data behind a key that no longer matches anything in the
+// database — this happened once already and must not happen again.
+// Fixing that properly needs a data migration (re-key existing rows to a
+// new Copenhagen-anchored boundary), not a change to these functions alone.
+import { zonedParts } from "./timezone";
 
 const WEEKDAYS_DA = ["søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag"];
 const WEEKDAYS_SHORT_DA = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
@@ -14,14 +22,10 @@ const MONTHS_DA = [
   "juli", "august", "september", "oktober", "november", "december",
 ];
 
-/** 0 (søndag) - 6 (lørdag) for the Danish calendar day containing `date`. */
-function zonedWeekday(date: Date): number {
-  const { year, month, day } = zonedParts(date);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-}
-
 export function startOfDay(date: Date): Date {
-  return copenhagenStartOfDay(date);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 export function isSameDay(a: Date, b: Date): boolean {
@@ -67,21 +71,27 @@ export function greeting(date: Date): string {
   return "God aften";
 }
 
+/** 0 (søndag) - 6 (lørdag) for the Danish calendar day containing `date` —
+ * used only for display text (formatLongDate), never for DB boundaries. */
+function zonedWeekday(date: Date): number {
+  const { year, month, day } = zonedParts(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
 export function getWeekRange(date: Date): { start: Date; end: Date } {
-  const day = zonedWeekday(date);
+  const d = startOfDay(date);
+  const day = d.getDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;
-  const start = addCalendarDays(copenhagenStartOfDay(date), diffToMonday);
-  const end = new Date(addCalendarDays(start, 7).getTime() - 1);
+  const start = new Date(d);
+  start.setDate(d.getDate() + diffToMonday);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
   return { start, end };
 }
 
 export function getMonthRange(date: Date): { start: Date; end: Date } {
-  const { year, month } = zonedParts(date);
-  const start = copenhagenStartOfDay(new Date(Date.UTC(year, month - 1, 1)));
-  // Adding a month via UTC Date math and letting startOfDay re-anchor it in
-  // Copenhagen time correctly lands on the 1st of next month even when the
-  // UTC month-length arithmetic doesn't exactly match the local calendar.
-  const nextMonthStart = copenhagenStartOfDay(new Date(Date.UTC(year, month, 1)));
-  const end = new Date(nextMonthStart.getTime() - 1);
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start, end };
 }
