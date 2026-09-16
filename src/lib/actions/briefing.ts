@@ -58,6 +58,17 @@ async function findOpenQuantityTask(userId: string, category: string, day: Date)
   });
 }
 
+// Real-world work already done today for a category BEFORE any target/total
+// was ever set for it — e.g. trailers washed via Vaskeplan earlier in the
+// day, before the briefing mentioned a count at all. Without this, setting
+// "11 trailere" after already washing 4 would start the counter back at 0,
+// silently losing the washes that happened first.
+async function alreadyCompletedToday(category: string, day: Date): Promise<number> {
+  if (category !== "Vaske") return 0;
+  const end = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+  return prisma.trailerWash.count({ where: { washedAt: { gte: day, lt: end } } });
+}
+
 async function findOrCreateQuantityTask(
   userId: string,
   category: string,
@@ -70,7 +81,8 @@ async function findOrCreateQuantityTask(
 
   const categoryId = await resolveCategoryId(userId, category);
   const meta = getCategoryMeta(category);
-  return prisma.task.create({
+  const alreadyDone = Math.min(initialTotal, await alreadyCompletedToday(category, day));
+  const task = await prisma.task.create({
     data: {
       userId,
       title: `${category}`,
@@ -78,11 +90,19 @@ async function findOrCreateQuantityTask(
       scheduledFor: day,
       isQuantityTask: true,
       quantityTotal: initialTotal,
-      quantityDone: 0,
+      quantityDone: alreadyDone,
       quantityUnit: meta.unit,
       sourceBriefingId: briefingId,
+      completed: alreadyDone >= initialTotal && initialTotal > 0,
+      completedAt: alreadyDone >= initialTotal && initialTotal > 0 ? new Date() : null,
     },
   });
+  if (alreadyDone > 0) {
+    await prisma.quantityLogEntry.create({
+      data: { taskId: task.id, userId, delta: alreadyDone, shift: "DAGHOLD" },
+    });
+  }
+  return task;
 }
 
 async function applyActions(
@@ -178,12 +198,25 @@ async function getExistingItemsContext(userId: string, day: Date): Promise<Exist
     where: { userId, isQuantityTask: true, scheduledFor: day, deletedAt: null, cancelledAt: null },
     include: { category: true },
   });
-  return tasks.map((t) => ({
+  const items = tasks.map((t) => ({
     taskId: t.id,
     category: t.category?.name ?? "Andre opgaver",
     total: t.quantityTotal ?? 0,
     done: t.quantityDone ?? 0,
   }));
+
+  // No "Vaske" quantity item yet, but washes already happened today (e.g.
+  // trailers washed via Vaskeplan before any target was mentioned) — seed a
+  // virtual entry so the assistant's reply reflects that work instead of
+  // claiming "0 done" for a target that's actually already partly met.
+  if (!items.some((i) => i.category === "Vaske")) {
+    const alreadyWashed = await alreadyCompletedToday("Vaske", day);
+    if (alreadyWashed > 0) {
+      items.push({ taskId: "", category: "Vaske", total: 0, done: alreadyWashed });
+    }
+  }
+
+  return items;
 }
 
 export async function getTodayBriefingData() {
