@@ -22,6 +22,21 @@ export const CATEGORY_META: CategoryMeta[] = [
   { name: "Kødkroge", icon: "🪝", unit: "stk", synonyms: ["kødkroge", "kødkrog", "krog", "kroge", "kødkrogene"] },
   { name: "Rengøring", icon: "🧹", unit: "stk", synonyms: ["rengøring", "fejet", "feje", "fejning"] },
   { name: "Modtagelser", icon: "📥", unit: "stk", synonyms: ["modtaget", "modtagelse", "modtagelser"] },
+  {
+    name: "Tankninger",
+    icon: "⛽",
+    unit: "stk",
+    synonyms: ["tankninger", "tankning", "tanket", "tanke", "tankede", "optankninger", "optankning"],
+  },
+  {
+    name: "Trailerreparationer",
+    icon: "🔧",
+    unit: "stk",
+    synonyms: [
+      "trailerreparationer", "trailerreparation", "reparationer", "reparation",
+      "repareret", "reparere", "reparerede",
+    ],
+  },
   { name: "Drive-in", icon: "🚗", unit: "kunder", synonyms: ["drive-in", "driveinkunder"] },
   { name: "På plads", icon: "📍", unit: "stk", synonyms: [] }, // catch-all, matched only as fallback
 ];

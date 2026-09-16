@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, Plus } from "lucide-react";
 import { Button, EmptyState } from "@/components/ui/primitives";
 import { AssistantPanel } from "@/components/briefing/assistant-panel";
 import { QuantityTaskCard } from "@/components/briefing/quantity-task-card";
+import { AddQuantityModal } from "@/components/briefing/add-quantity-modal";
 import { PlanVsActualCard } from "@/components/briefing/plan-vs-actual";
 import { EndOfDayModal } from "@/components/briefing/end-of-day-modal";
 import type { BriefingAction, ExistingItemContext } from "@/lib/ai/briefing-types";
@@ -32,6 +33,7 @@ export function PlanlaegningClient({
   planVsActual: PlanVsActual;
 }) {
   const [endOfDayOpen, setEndOfDayOpen] = useState(false);
+  const [addQuantityOpen, setAddQuantityOpen] = useState(false);
 
   return (
     <div className="space-y-6 pb-4">
@@ -59,9 +61,22 @@ export function PlanlaegningClient({
       />
 
       <section>
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-muted">Dagens arbejdsemner</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-muted">Dagens arbejdsemner</h2>
+          <button
+            onClick={() => setAddQuantityOpen(true)}
+            className="flex items-center gap-1 text-sm font-semibold text-accent"
+          >
+            <Plus size={14} /> Tilføj optælling
+          </button>
+        </div>
         {quantityTasks.length === 0 ? (
-          <EmptyState icon="🚿" title="Ingen opgaver fra briefing endnu" description="Skriv til assistenten ovenfor for at komme i gang." />
+          <EmptyState
+            icon="🚿"
+            title="Ingen opgaver fra briefing endnu"
+            description="Skriv til assistenten ovenfor, eller tilføj en optælling direkte."
+            action={<Button size="sm" onClick={() => setAddQuantityOpen(true)}>Tilføj optælling</Button>}
+          />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {quantityTasks.map((t) => (
@@ -87,6 +102,7 @@ export function PlanlaegningClient({
       <PlanVsActualCard data={planVsActual} />
 
       <EndOfDayModal open={endOfDayOpen} onClose={() => setEndOfDayOpen(false)} />
+      <AddQuantityModal open={addQuantityOpen} onClose={() => setAddQuantityOpen(false)} />
     </div>
   );
 }

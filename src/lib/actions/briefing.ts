@@ -225,6 +225,33 @@ export async function getBriefingForDate(date: Date) {
   return briefing;
 }
 
+// Manual counterpart to the AI briefing flow — lets a category/count be
+// added directly from the UI (e.g. "Tankninger", "Trailerreparationer")
+// without going through the assistant chat. Adds to today's existing task
+// for that category if one already exists, otherwise creates a new one.
+export async function addManualQuantityTask(categoryName: string, total: number): Promise<void> {
+  const name = categoryName.trim();
+  if (!name) throw new Error("Angiv en kategori.");
+  if (!Number.isFinite(total) || total <= 0) throw new Error("Angiv et antal større end 0.");
+
+  const userId = await getCurrentUserId();
+  const day = startOfDay(new Date());
+  const briefing = await getOrCreateTodayBriefing(userId, day);
+
+  const existing = await findOpenQuantityTask(userId, name, day);
+  if (existing) {
+    await prisma.task.update({
+      where: { id: existing.id },
+      data: { quantityTotal: { increment: Math.round(total) } },
+    });
+  } else {
+    await findOrCreateQuantityTask(userId, name, day, briefing.id, Math.round(total));
+  }
+
+  revalidatePath("/");
+  revalidatePath("/planlaegning");
+}
+
 export async function getQuantityTasksForDay(day: Date) {
   const userId = await getCurrentUserId();
   const tasks = await prisma.task.findMany({
