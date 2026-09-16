@@ -1,5 +1,5 @@
 import { CATEGORY_META, getCategoryMeta } from "./category-meta";
-import { extractNumber } from "./danish-numbers";
+import { extractNumber, extractAllNumbers } from "./danish-numbers";
 import { wordRegex } from "./regex-utils";
 import type {
   BriefingAction,
@@ -42,6 +42,26 @@ const FILLER_PREFIXES = [
   /^vi\s+skal\s+/i,
 ];
 
+// Speech-to-text often runs several "<count> <category>" items together
+// with no punctuation or conjunction at all ("1 oprydning 11 trailere fra
+// haven 2 paller juletræer") — split right before every
+// number that isn't the clause's very first token, so each item keeps its
+// own count instead of every item getting the first number in the whole
+// clause. Only splits when at least 2 numbers are present.
+function splitOnEmbeddedCounts(clause: string): string[] {
+  const numbers = extractAllNumbers(clause);
+  if (numbers.length <= 1) return [clause];
+
+  const segments: string[] = [];
+  let cursor = 0;
+  for (let i = 1; i < numbers.length; i++) {
+    segments.push(clause.slice(cursor, numbers[i].index).trim());
+    cursor = numbers[i].index;
+  }
+  segments.push(clause.slice(cursor).trim());
+  return segments.filter(Boolean);
+}
+
 function splitClauses(text: string): string[] {
   const sentences = text
     .split(/[.!?\n]+/)
@@ -58,7 +78,7 @@ function splitClauses(text: string): string[] {
       .split(/\s*\|\|\|\s*|\s*,\s*|\s+og\s+/i)
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-    clauses.push(...parts);
+    for (const part of parts) clauses.push(...splitOnEmbeddedCounts(part));
   }
   return clauses;
 }

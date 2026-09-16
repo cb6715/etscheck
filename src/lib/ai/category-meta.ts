@@ -20,7 +20,12 @@ export const CATEGORY_META: CategoryMeta[] = [
   { name: "Juletræer", icon: "🎄", unit: "stk", synonyms: ["juletræer", "juletræ", "juletræerne", "juletræet"] },
   { name: "Paller", icon: "📦", unit: "paller", synonyms: ["paller", "palle", "pallerne", "palletter"] },
   { name: "Kødkroge", icon: "🪝", unit: "stk", synonyms: ["kødkroge", "kødkrog", "krog", "kroge", "kødkrogene"] },
-  { name: "Rengøring", icon: "🧹", unit: "stk", synonyms: ["rengøring", "fejet", "feje", "fejning"] },
+  {
+    name: "Rengøring",
+    icon: "🧹",
+    unit: "stk",
+    synonyms: ["rengøring", "fejet", "feje", "fejning", "oprydning", "oprydninger", "ryddet op", "rydde op"],
+  },
   { name: "Modtagelser", icon: "📥", unit: "stk", synonyms: ["modtaget", "modtagelse", "modtagelser"] },
   {
     name: "Tankninger",
