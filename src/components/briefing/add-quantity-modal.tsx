@@ -1,22 +1,38 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Modal, Field, inputClass, Button } from "@/components/ui/primitives";
 import { addManualQuantityTask } from "@/lib/actions/briefing";
 
 const QUICK_CATEGORIES = ["Tankninger", "Trailerreparationer", "Vaske", "Paller"];
 
-export function AddQuantityModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AddQuantityModal({
+  open,
+  onClose,
+  initialCategory = "",
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialCategory?: string;
+}) {
   const [pending, startTransition] = useTransition();
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState(initialCategory);
   const [total, setTotal] = useState("");
   const [error, setError] = useState("");
 
   function reset() {
-    setCategory("");
+    setCategory(initialCategory);
     setTotal("");
     setError("");
   }
+
+  // Re-apply the preset category every time the modal is (re)opened — a
+  // single shared instance (e.g. from the FAB) gets reused across different
+  // initialCategory values, so the mount-time useState default alone isn't
+  // enough to pick up a change.
+  useEffect(() => {
+    if (open) setCategory(initialCategory);
+  }, [open, initialCategory]);
 
   function submit() {
     const n = Number(total);
