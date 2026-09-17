@@ -25,6 +25,11 @@ export type WageConfig = {
   /** ATP-bidrag kr/time — a small mandatory pension contribution deducted
    * from gross BEFORE AM-bidrag is calculated on what's left. */
   atpRatePerHour: number;
+  /** Salary advance (forskud) already paid out for the current pay period,
+   * in kr — subtracted from the period's net total so what's shown matches
+   * what's actually still outstanding. Reset manually in settings whenever
+   * a new pay period starts, same as the period dates. */
+  advanceAmount: number;
   /** Current pay period — the skattefradrag threshold is tracked across
    * this window, not the calendar month (pay periods don't necessarily
    * run 1st-to-last). Updated manually in settings when a new period starts. */
@@ -45,6 +50,7 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   amBidragPct: 0.08,
   taxRatePct: 0.44,
   atpRatePerHour: 0.6822,
+  advanceAmount: 0,
   payPeriodStart: new Date(2026, 7, 24),
   payPeriodEnd: new Date(2026, 8, 20),
 };
@@ -208,7 +214,11 @@ export function netForCumulative(cumulativeGross: number, cumulativePaidSeconds:
   const amBidrag = amBase * config.amBidragPct;
   const taxableIncome = Math.max(0, amBase - amBidrag - config.monthlyTaxDeduction);
   const tax = taxableIncome * config.taxRatePct;
-  return cumulativeGross - atp - amBidrag - tax;
+  // Subtracting a flat advance here (rather than per session) cancels out in
+  // netForIncrement's subtraction of two netForCumulative calls, so stored
+  // per-session net amounts are unaffected — only an absolute total (the
+  // wage bar's period total) reflects the advance already paid out.
+  return cumulativeGross - atp - amBidrag - tax - config.advanceAmount;
 }
 
 /**

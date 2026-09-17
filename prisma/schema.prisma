@@ -444,6 +444,11 @@ model WageSettings {
   taxRatePct             Float @default(0.44) // skatteprocent
   atpRatePerHour         Float @default(0.6822) // ATP-bidrag kr/time, trukket før AM-bidrag beregnes
 
+  // Forskud allerede udbetalt i denne lønperiode (kr) — trækkes fra den
+  // viste nettoløn, så "til gode" tallet matcher hvad der reelt udestår.
+  // Nulstilles manuelt her når en ny periode starter, ligesom periodedatoerne.
+  advanceAmount Float @default(0)
+
   // Nuværende lønperiode — skattefradraget spores på tværs af denne periode,
   // ikke kalendermåneden (lønperioder følger ikke nødvendigvis 1.-sidste).
   // Opdateres manuelt her i indstillinger når en ny periode starter.

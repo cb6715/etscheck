@@ -47,6 +47,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
   const [amBidragPct, setAmBidragPct] = useState(String(settings.amBidragPct * 100));
   const [taxRatePct, setTaxRatePct] = useState(String(settings.taxRatePct * 100));
   const [atpRatePerHour, setAtpRatePerHour] = useState(String(settings.atpRatePerHour));
+  const [advanceAmount, setAdvanceAmount] = useState(String(settings.advanceAmount));
   const [payPeriodStart, setPayPeriodStart] = useState(dateToInputValue(settings.payPeriodStart));
   const [payPeriodEnd, setPayPeriodEnd] = useState(dateToInputValue(settings.payPeriodEnd));
 
@@ -72,6 +73,7 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
         amBidragPct: (Number(amBidragPct) || 0) / 100,
         taxRatePct: (Number(taxRatePct) || 0) / 100,
         atpRatePerHour: Number(atpRatePerHour) || 0,
+        advanceAmount: Number(advanceAmount) || 0,
         payPeriodStart: inputValueToDate(payPeriodStart),
         payPeriodEnd: inputValueToDate(payPeriodEnd),
       });
@@ -162,6 +164,15 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
             onChange={(e) => setAtpRatePerHour(e.target.value)}
           />
         </Field>
+        <Field label="Forskud udbetalt (kr)">
+          <input
+            className={inputClass}
+            type="number"
+            value={advanceAmount}
+            onChange={(e) => setAdvanceAmount(e.target.value)}
+            placeholder="0"
+          />
+        </Field>
         <Field label="Lønperiode fra">
           <input
             className={inputClass}
@@ -174,6 +185,10 @@ export function WageSettingsForm({ settings }: { settings: WageConfig }) {
           <input className={inputClass} type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} />
         </Field>
       </div>
+      <p className="text-xs text-muted">
+        Forskud trækkes fra den samlede nettoløn der vises i toppen af appen for denne periode — nulstil den til 0,
+        når en ny lønperiode starter (ligesom periodedatoerne).
+      </p>
       <p className="text-xs text-muted">
         Skattefradraget spores hen over denne periode, ikke kalendermåneden. Opdatér datoerne her, når en ny
         lønperiode starter.
