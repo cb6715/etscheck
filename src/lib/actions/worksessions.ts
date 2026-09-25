@@ -38,15 +38,44 @@ export async function updateWageSettings(input: WageSettingsInput) {
   revalidatePath("/indstillinger");
 }
 
-// Paid seconds already worked this ISO week, strictly before `before` —
-// the baseline the 37-timers-overtime threshold is measured against.
-async function priorWeekPaidSeconds(userId: string, before: Date) {
+// ELAPSED shift seconds (checkOutAt - checkInAt, i.e. including any unpaid
+// break in between) already worked this ISO week, strictly before `before`
+// — the baseline the 37-timers-overtime threshold is measured against. This
+// is deliberately NOT the sum of `paidSeconds` (which excludes the unpaid
+// break): a 30-min unpaid break still counts towards when you enter
+// overtime, it just isn't paid kr for those 30 minutes. See the comment on
+// computeIntervalEarnings in engine.ts for the full reasoning.
+async function priorWeekElapsedSeconds(userId: string, before: Date) {
   const { start } = getWeekRange(before);
   const sessions = await prisma.workSession.findMany({
     where: { userId, checkOutAt: { not: null }, checkInAt: { gte: start, lt: before } },
-    select: { paidSeconds: true },
+    select: { checkInAt: true, checkOutAt: true },
   });
-  return sessions.reduce((sum, s) => sum + (s.paidSeconds ?? 0), 0);
+  return sessions.reduce((sum, s) => sum + (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000, 0);
+}
+
+// Re-derives paidSeconds/grossAmount for this ISO week's already-closed,
+// real (non-manual) sessions using the CURRENT engine rules, in
+// chronological order — so a fix to how the overtime threshold is measured
+// (e.g. the elapsed-vs-paid break fix above) self-heals already-recorded
+// shifts the next time the app is opened, without a manual migration step.
+// Safe to call repeatedly: a session already matching the current rules is
+// left untouched.
+async function recomputeWeekSessions(userId: string, referenceDate: Date, config: WageConfig): Promise<void> {
+  const { start } = getWeekRange(referenceDate);
+  const sessions = await prisma.workSession.findMany({
+    where: { userId, checkOutAt: { not: null }, isManualEntry: false, checkInAt: { gte: start } },
+    orderBy: { checkInAt: "asc" },
+  });
+
+  let elapsedSoFar = 0;
+  for (const s of sessions) {
+    const { paidSeconds, grossAmount } = computeIntervalEarnings(s.checkInAt, s.checkOutAt!, elapsedSoFar, config);
+    elapsedSoFar += (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000;
+    if (paidSeconds !== s.paidSeconds || Math.abs(grossAmount - (s.grossAmount ?? 0)) > 0.001) {
+      await prisma.workSession.update({ where: { id: s.id }, data: { paidSeconds, grossAmount } });
+    }
+  }
 }
 
 // Gross kr and paid seconds already earned in the current pay period,
@@ -104,7 +133,7 @@ const UNDO_CHECKOUT_WINDOW_MS = 30 * 60 * 1000;
 export type WageContext = {
   config: WageConfig;
   openSession: { id: string; checkInAt: string } | null;
-  priorWeekPaidSeconds: number;
+  priorWeekElapsedSeconds: number;
   priorPeriodGross: number;
   priorPeriodPaidSeconds: number;
   canUndoCheckout: boolean;
@@ -123,15 +152,16 @@ export async function getWageContext(): Promise<WageContext> {
   ]);
 
   const referenceTime = openSession?.checkInAt ?? new Date();
+  await recomputeWeekSessions(userId, referenceTime, config);
   const [weekSeconds, periodTotals] = await Promise.all([
-    priorWeekPaidSeconds(userId, referenceTime),
+    priorWeekElapsedSeconds(userId, referenceTime),
     priorPeriodTotals(userId, referenceTime, config),
   ]);
 
   return {
     config,
     openSession: openSession ? { id: openSession.id, checkInAt: openSession.checkInAt.toISOString() } : null,
-    priorWeekPaidSeconds: weekSeconds,
+    priorWeekElapsedSeconds: weekSeconds,
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
     canUndoCheckout: Boolean(
@@ -191,9 +221,10 @@ export async function checkOut(): Promise<WageContext> {
 
   if (session) {
     const config = await getOrCreateWageSettings(userId);
+    await recomputeWeekSessions(userId, session.checkInAt, config);
     const now = new Date();
     const [weekSecondsBefore, periodBefore] = await Promise.all([
-      priorWeekPaidSeconds(userId, session.checkInAt),
+      priorWeekElapsedSeconds(userId, session.checkInAt),
       priorPeriodTotals(userId, session.checkInAt, config),
     ]);
     const { paidSeconds, grossAmount } = computeIntervalEarnings(session.checkInAt, now, weekSecondsBefore, config);
@@ -272,7 +303,7 @@ async function insertManualWeek(userId: string, weekOf: Date, hours: number): Pr
 
   const config = await getOrCreateWageSettings(userId);
   const [weekSecondsBefore, periodBefore] = await Promise.all([
-    priorWeekPaidSeconds(userId, start),
+    priorWeekElapsedSeconds(userId, start),
     priorPeriodTotals(userId, start, config),
   ]);
   const { paidSeconds, grossAmount } = computeWeekGrossFromHours(hours, weekSecondsBefore, config);

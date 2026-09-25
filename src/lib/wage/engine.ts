@@ -129,15 +129,27 @@ export type IntervalEarnings = {
 };
 
 /**
- * Gross pay for the interval [start, end), given how many paid seconds were
- * already worked earlier this week (so the 37-timers-overtime threshold can
- * be crossed mid-interval). Handles a chunk straddling the threshold by
- * splitting it into a normal-rate part and an overtime-rate part.
+ * Gross pay for the interval [start, end), given how many seconds of
+ * ELAPSED shift time (not paid time — see below) already happened earlier
+ * this week, so the 37-timers-overtime threshold can be crossed
+ * mid-interval. Handles a chunk straddling the threshold by splitting it
+ * into a normal-rate part and an overtime-rate part.
+ *
+ * The 37-timers threshold is measured against ELAPSED clock time (the full
+ * shift span, including the unpaid break), not against paid seconds. An
+ * unpaid break doesn't stop your clock towards overtime — you're still
+ * "on the clock" time-wise for that half hour, you just don't get paid kr
+ * for it. Concretely: the break segment below still contributes 0 kr and 0
+ * paidSeconds, but its duration still advances `cumulativeElapsedSeconds`,
+ * so a shift with a 30-min unpaid break reaches its first overtime second
+ * exactly 30 minutes later in the clock than it otherwise would — not 30
+ * minutes later than "hours actually paid so far", which is what the
+ * previous, wrong implementation compared against.
  */
 export function computeIntervalEarnings(
   start: Date,
   end: Date,
-  priorWeekPaidSeconds: number,
+  priorWeekElapsedSeconds: number,
   config: WageConfig
 ): IntervalEarnings {
   if (end <= start) return { paidSeconds: 0, grossAmount: 0 };
@@ -145,7 +157,7 @@ export function computeIntervalEarnings(
   const boundaries = collectBoundaries(start, end, config);
   const thresholdSeconds = config.overtimeThresholdHours * 3600;
 
-  let cumulativePaidSeconds = priorWeekPaidSeconds;
+  let cumulativeElapsedSeconds = priorWeekElapsedSeconds;
   let paidSeconds = 0;
   let grossAmount = 0;
 
@@ -155,7 +167,6 @@ export function computeIntervalEarnings(
       (isNight ? config.nightSupplement : 0);
     grossAmount += (rate / 3600) * durationSeconds;
     paidSeconds += durationSeconds;
-    cumulativePaidSeconds += durationSeconds;
   };
 
   for (let i = 0; i < boundaries.length - 1; i++) {
@@ -165,18 +176,23 @@ export function computeIntervalEarnings(
     if (durationSeconds <= 0) continue;
 
     const midpoint = new Date((t0.getTime() + t1.getTime()) / 2);
-    if (isBreakMoment(midpoint, config)) continue; // unpaid, doesn't count towards paidSeconds either
+    if (isBreakMoment(midpoint, config)) {
+      cumulativeElapsedSeconds += durationSeconds; // unpaid, but still counts towards the overtime clock
+      continue;
+    }
 
     const isNight = isNightMoment(midpoint, config);
     let remaining = durationSeconds;
 
-    if (cumulativePaidSeconds < thresholdSeconds) {
-      const normalPart = Math.min(remaining, thresholdSeconds - cumulativePaidSeconds);
+    if (cumulativeElapsedSeconds < thresholdSeconds) {
+      const normalPart = Math.min(remaining, thresholdSeconds - cumulativeElapsedSeconds);
       addSegment(normalPart, isNight, false);
+      cumulativeElapsedSeconds += normalPart;
       remaining -= normalPart;
     }
     if (remaining > 0) {
       addSegment(remaining, isNight, true);
+      cumulativeElapsedSeconds += remaining;
     }
   }
 
@@ -190,12 +206,12 @@ export function computeIntervalEarnings(
  */
 export function computeWeekGrossFromHours(
   hours: number,
-  priorWeekPaidSeconds: number,
+  priorWeekElapsedSeconds: number,
   config: WageConfig
 ): IntervalEarnings {
   const paidSeconds = Math.round(hours * 3600);
   const thresholdSeconds = config.overtimeThresholdHours * 3600;
-  const normalSeconds = Math.max(0, Math.min(paidSeconds, thresholdSeconds - priorWeekPaidSeconds));
+  const normalSeconds = Math.max(0, Math.min(paidSeconds, thresholdSeconds - priorWeekElapsedSeconds));
   const overtimeSeconds = paidSeconds - normalSeconds;
   const grossAmount =
     (normalSeconds / 3600) * config.hourlyRate + (overtimeSeconds / 3600) * config.hourlyRate * (1 + config.overtimeBonusPct);

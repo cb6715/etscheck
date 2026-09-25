@@ -75,7 +75,7 @@ export function WageBar() {
     if (!context?.openSession || !now) return null;
     try {
       const checkInAt = new Date(context.openSession.checkInAt);
-      return computeIntervalEarnings(checkInAt, now, context.priorWeekPaidSeconds, context.config);
+      return computeIntervalEarnings(checkInAt, now, context.priorWeekElapsedSeconds, context.config);
     } catch (e) {
       console.error("Wage live calc failed:", e);
       return null;
