@@ -9,7 +9,7 @@ import { useRef, type ReactNode, type PointerEvent } from "react";
 export function TiltWrapper({
   children,
   className,
-  maxTilt = 7,
+  maxTilt = 12,
 }: {
   children: ReactNode;
   className?: string;

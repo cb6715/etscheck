@@ -14,10 +14,10 @@ const LINKS = [
 export function NavBar() {
   const pathname = usePathname();
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-lg items-center justify-between px-4 py-3 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 text-lg font-extrabold tracking-tight">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)]" />
+    <header className="sticky top-0 z-40 px-3 pt-3 sm:px-4">
+      <div className="glass mx-auto flex w-full max-w-lg items-center justify-between rounded-full px-4 py-2.5">
+        <Link href="/" className="flex items-center gap-2 text-base font-extrabold tracking-tight">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] shadow-[0_0_10px_-1px_var(--accent-a40)]" />
           Vagtløn
         </Link>
         <nav className="flex items-center gap-1">
@@ -31,7 +31,7 @@ export function NavBar() {
                 className={clsx(
                   "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition",
                   active
-                    ? "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--accent-foreground)]"
+                    ? "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--accent-foreground)] shadow-[0_0_16px_-2px_var(--accent-a40)]"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                 )}
               >

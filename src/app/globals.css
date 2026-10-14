@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f5f3ff;
-  --bg-2: #eef2ff;
+  --bg: #e9e4fb;
   --surface: #ffffff;
-  --surface-2: #f1f0fb;
-  --border: #e3e0f5;
+  --surface-2: #f1eefc;
+  --border: #e3ddf7;
   --foreground: #16121f;
   --muted: #6b6480;
   --accent: #7c3aed;
   --accent-2: #ec4899;
+  --accent-3: #22d3ee;
   --accent-foreground: #ffffff;
   --success: #16a34a;
   --success-bg: #dcfce7;
@@ -22,25 +22,35 @@
   --accent-a10: rgba(124, 58, 237, 0.1);
   --accent-a20: rgba(124, 58, 237, 0.2);
   --accent-a40: rgba(124, 58, 237, 0.4);
-  --shadow-ambient: 0 1px 2px rgba(23, 12, 48, 0.04), 0 12px 28px -8px rgba(76, 29, 149, 0.18);
-  --shadow-ambient-lg: 0 2px 4px rgba(23, 12, 48, 0.06), 0 24px 48px -12px rgba(76, 29, 149, 0.28);
+
+  /* Glass: translucent panels that actually have colour behind them to
+     blur, via the fixed aurora layer painted under everything. */
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-blur: 22px;
+
+  --shadow-ambient: 0 1px 1px rgba(23, 12, 48, 0.04), 0 2px 8px rgba(76, 29, 149, 0.08), 0 16px 40px -12px rgba(76, 29, 149, 0.22);
+  --shadow-ambient-lg: 0 1px 1px rgba(23, 12, 48, 0.05), 0 4px 16px rgba(76, 29, 149, 0.14), 0 32px 64px -16px rgba(76, 29, 149, 0.35);
   --shadow-press: 0 1px 2px rgba(23, 12, 48, 0.08);
-  --edge-light: rgba(255, 255, 255, 0.5);
-  --edge-dark: rgba(23, 12, 48, 0.14);
+  --edge-light: rgba(255, 255, 255, 0.6);
+  --edge-dark: rgba(23, 12, 48, 0.16);
+  --glow-accent: 0 0 32px -4px var(--accent-a40);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0a14;
-    --bg-2: #130f22;
-    --surface: #161327;
-    --surface-2: #1d1833;
-    --border: #2a2347;
-    --foreground: #f3f1fb;
-    --muted: #9790b5;
-    --accent: #a78bfa;
-    --accent-2: #f472b6;
-    --accent-foreground: #0b0a14;
+    --bg: #0a0814;
+    --surface: #171329;
+    --surface-2: #1e1938;
+    --border: #322a54;
+    --foreground: #f5f3fc;
+    --muted: #a39cc2;
+    --accent: #b794ff;
+    --accent-2: #ff8fd4;
+    --accent-3: #67e8f9;
+    --accent-foreground: #140b2e;
     --success: #4ade80;
     --success-bg: rgba(74, 222, 128, 0.15);
     --warning: #fbbf24;
@@ -49,14 +59,22 @@
     --danger-bg: rgba(248, 113, 113, 0.15);
     --info: #60a5fa;
     --info-bg: rgba(96, 165, 250, 0.15);
-    --accent-a10: rgba(167, 139, 250, 0.12);
-    --accent-a20: rgba(167, 139, 250, 0.22);
-    --accent-a40: rgba(167, 139, 250, 0.4);
-    --shadow-ambient: 0 1px 1px rgba(0, 0, 0, 0.3), 0 14px 32px -10px rgba(0, 0, 0, 0.55);
-    --shadow-ambient-lg: 0 2px 2px rgba(0, 0, 0, 0.35), 0 28px 56px -14px rgba(0, 0, 0, 0.65);
-    --shadow-press: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --edge-light: rgba(255, 255, 255, 0.08);
-    --edge-dark: rgba(0, 0, 0, 0.5);
+    --accent-a10: rgba(183, 148, 255, 0.14);
+    --accent-a20: rgba(183, 148, 255, 0.26);
+    --accent-a40: rgba(183, 148, 255, 0.48);
+
+    --glass-bg: rgba(30, 24, 56, 0.55);
+    --glass-bg-strong: rgba(30, 24, 56, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-highlight: rgba(255, 255, 255, 0.22);
+    --glass-blur: 24px;
+
+    --shadow-ambient: 0 1px 1px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.3), 0 20px 44px -12px rgba(0, 0, 0, 0.6);
+    --shadow-ambient-lg: 0 1px 1px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.4), 0 40px 80px -16px rgba(0, 0, 0, 0.75);
+    --shadow-press: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --edge-light: rgba(255, 255, 255, 0.1);
+    --edge-dark: rgba(0, 0, 0, 0.55);
+    --glow-accent: 0 0 40px -2px var(--accent-a40);
   }
 }
 
@@ -64,11 +82,42 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+}
+
 body {
-  background: radial-gradient(circle at 15% 0%, var(--bg-2), var(--bg) 55%);
+  position: relative;
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Aurora: large, saturated, blurred colour fields fixed behind everything —
+   this is what the glass panels are actually blurring/refracting, so the
+   "glass" reads as glass instead of a flat tinted rectangle. */
+.aurora-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.55;
+  will-change: transform;
+}
+
+@media (prefers-color-scheme: dark) {
+  .aurora-blob {
+    opacity: 0.4;
+    filter: blur(90px);
+  }
 }
 
 ::selection {
@@ -85,25 +134,53 @@ body {
 }
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .animate-fade-up {
-  animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+@keyframes aurora-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
+  33% { transform: translate3d(6%, -8%, 0) scale(1.15) rotate(8deg); }
+  66% { transform: translate3d(-8%, 6%, 0) scale(0.95) rotate(-6deg); }
+}
+
+.aurora-drift-a { animation: aurora-drift 22s ease-in-out infinite; }
+.aurora-drift-b { animation: aurora-drift 28s ease-in-out infinite reverse; }
+.aurora-drift-c { animation: aurora-drift 34s ease-in-out infinite; }
 
 @keyframes float-blob {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(-6%, 8%, 0) scale(1.08); }
+  50% { transform: translate3d(-6%, 8%, 0) scale(1.1); }
 }
 
 .float-blob {
-  animation: float-blob 9s ease-in-out infinite;
+  animation: float-blob 8s ease-in-out infinite;
 }
 
 .float-blob-slow {
-  animation: float-blob 13s ease-in-out infinite reverse;
+  animation: float-blob 12s ease-in-out infinite reverse;
+}
+
+/* Glass panel: translucent + blurred + a crisp light edge, so it reads as
+   a pane of glass sitting above the aurora, not a flat opaque card. */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-ambient);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-ambient-lg), var(--glow-accent);
 }
 
 /* A 3D tilt card: JS sets --tilt-x/--tilt-y/--tilt-s (rotation + scale) on
@@ -112,7 +189,7 @@ body {
 .tilt-card {
   transform-style: preserve-3d;
   transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) scale3d(var(--tilt-s, 1), var(--tilt-s, 1), 1);
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
 }
 
@@ -121,9 +198,9 @@ body {
 }
 
 .tilt-sheen {
-  background: radial-gradient(circle at var(--sheen-x, 50%) var(--sheen-y, 0%), var(--edge-light), transparent 55%);
+  background: radial-gradient(circle at var(--sheen-x, 50%) var(--sheen-y, 0%), var(--edge-light), transparent 60%);
   mix-blend-mode: overlay;
-  opacity: 0.7;
+  opacity: 0.9;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }

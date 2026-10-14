@@ -8,16 +8,11 @@ export function Card({
 }: {
   children?: ReactNode;
   className?: string;
-  /** Deeper shadow for the one "hero" card on a page, instead of every card. */
+  /** Stronger glow + shadow for the one "hero" card on a page, instead of every card. */
   elevated?: boolean;
 }) {
   return (
-    <div
-      className={clsx("rounded-3xl border border-[var(--border)] bg-[var(--surface)]", className)}
-      style={{ boxShadow: elevated ? "var(--shadow-ambient-lg)" : "var(--shadow-ambient)" }}
-    >
-      {children}
-    </div>
+    <div className={clsx("rounded-[28px]", elevated ? "glass-strong" : "glass", className)}>{children}</div>
   );
 }
 
@@ -41,12 +36,13 @@ export function Button({
   fullWidth?: boolean;
 }) {
   const variants = {
-    primary: "bg-gradient-to-b from-[var(--accent-2)] to-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-105",
-    secondary: "bg-[var(--surface-2)] text-[var(--foreground)] hover:brightness-95",
+    primary:
+      "bg-gradient-to-b from-[var(--accent-2)] to-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-105",
+    secondary: "glass text-[var(--foreground)] hover:brightness-95",
     ghost: "bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-2)]",
     danger: "bg-[var(--danger)] text-white hover:brightness-110",
   };
-  const sizes = { sm: "text-sm px-3 py-2 rounded-xl", md: "text-sm px-4 py-3 rounded-2xl", lg: "text-base px-5 py-4 rounded-2xl" };
+  const sizes = { sm: "text-sm px-4 py-2 rounded-full", md: "text-sm px-5 py-3 rounded-full", lg: "text-base px-6 py-4 rounded-full" };
   return (
     <button
       type={type}
@@ -55,7 +51,8 @@ export function Button({
       className={clsx(
         "btn-3d font-bold disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none select-none",
         variants[variant],
-        variant === "ghost" && "!shadow-none",
+        (variant === "ghost" || variant === "secondary") && "!shadow-none",
+        variant === "primary" && "shadow-[0_0_24px_-4px_var(--accent-a40)]",
         sizes[size],
         fullWidth && "w-full",
         className
@@ -101,4 +98,4 @@ export function Field({ label, children, required }: { label: string; children: 
 }
 
 export const inputClass =
-  "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-base text-[var(--foreground)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-a20)] placeholder:text-[var(--muted)]";
+  "glass w-full rounded-2xl px-4 py-3 text-base text-[var(--foreground)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-a20)] placeholder:text-[var(--muted)]";

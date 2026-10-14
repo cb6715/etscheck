@@ -216,13 +216,13 @@ export function WageCard() {
       <div className="space-y-3 p-5">
         {(hoursToday !== null || hoursThisPeriod !== null) && (
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-[var(--surface-2)] px-4 py-3">
+            <div className="glass rounded-2xl px-4 py-3">
               <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
                 <Clock size={13} /> I dag
               </span>
               <div className="mt-1 font-mono text-lg font-extrabold tabular-nums">{formatHours(hoursToday ?? 0)}</div>
             </div>
-            <div className="rounded-2xl bg-[var(--surface-2)] px-4 py-3">
+            <div className="glass rounded-2xl px-4 py-3">
               <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
                 <CalendarRange size={13} /> Denne periode
               </span>
@@ -249,7 +249,7 @@ export function WageCard() {
               type="time"
               value={checkInTimeInput}
               onChange={(e) => setCheckInTimeInput(e.target.value)}
-              className="flex-1 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-sm font-bold"
+              className="flex-1 glass rounded-2xl px-3 py-2.5 text-sm font-bold"
             />
             <Button size="md" onClick={saveCheckInTime} disabled={pending} className="flex items-center gap-1">
               <Check size={16} />
@@ -264,14 +264,14 @@ export function WageCard() {
           <button
             onClick={handleUndoCheckout}
             disabled={pending}
-            className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[var(--surface-2)] py-2 text-xs font-bold text-[var(--accent)] disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-1.5 glass rounded-2xl py-2 text-xs font-bold text-[var(--accent)] disabled:opacity-60"
           >
             <Undo2 size={14} /> Fortryd sidste tjek ud
           </button>
         )}
 
         {checkedIn && live && (
-          <div className="flex items-center justify-between rounded-2xl bg-[var(--surface-2)] px-4 py-3">
+          <div className="flex items-center justify-between glass rounded-2xl px-4 py-3">
             <span className="text-xs font-semibold text-[var(--muted)]">Denne vagt</span>
             <span className="flex items-center gap-2">
               <Badge>{formatHours(live.paidSeconds / 3600)}</Badge>
