@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
 import { CalendarDays } from "lucide-react";
 import Link from "next/link";
-import { hasUser } from "@/lib/actions";
+import { requirePageAccess } from "@/lib/auth-guard";
 import { WageCard } from "@/components/wage-card";
 import { Card } from "@/components/ui/primitives";
 import { greeting } from "@/lib/date";
@@ -9,7 +8,7 @@ import { greeting } from "@/lib/date";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  if (!(await hasUser())) redirect("/onboarding");
+  await requirePageAccess();
 
   return (
     <div className="space-y-5">

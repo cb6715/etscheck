@@ -22,6 +22,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   themeColor: "#7c3aed",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -43,7 +44,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           />
         </div>
         <NavBar />
-        <main className="mx-auto w-full max-w-lg flex-1 px-4 pb-24 pt-5 sm:px-6">{children}</main>
+        <main className="mx-auto w-full max-w-lg min-w-0 flex-1 px-4 pt-5 sm:px-6 [padding-bottom:max(6rem,calc(2rem+env(safe-area-inset-bottom)))]">
+          {children}
+        </main>
       </body>
     </html>
   );

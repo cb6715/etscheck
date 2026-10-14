@@ -48,15 +48,17 @@ export function HistoricalWeekEntry({ weekStart, onLogged }: { weekStart: string
 
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-2xl bg-[var(--surface-2)] p-3">
-      <input
-        type="number"
-        step="0.5"
-        placeholder="Timer i alt"
-        className={inputClass}
-        value={hours}
-        onChange={(e) => setHours(e.target.value)}
-      />
-      <Button size="sm" onClick={submit} disabled={pending} className="flex items-center gap-1.5">
+      <div className="min-w-[140px] flex-1">
+        <input
+          type="number"
+          step="0.5"
+          placeholder="Timer i alt"
+          className={inputClass}
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+        />
+      </div>
+      <Button size="sm" onClick={submit} disabled={pending} className="flex shrink-0 items-center gap-1.5">
         <Check size={14} /> Gem
       </Button>
       {error && <p className="w-full text-xs font-semibold text-[var(--danger)]">{error}</p>}

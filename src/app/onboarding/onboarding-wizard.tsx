@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowLeft, Sparkles } from "lucide-react";
 import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
-import { completeOnboarding } from "@/lib/actions";
+import { signUp } from "@/lib/actions";
 
 function dateToInputValue(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -20,7 +20,7 @@ function lastOfMonth(): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
-const STEPS = ["Dig", "Løn", "Skat & pause"];
+const STEPS = ["Konto", "Løn", "Skat & pause"];
 
 export function OnboardingWizard() {
   const router = useRouter();
@@ -30,6 +30,7 @@ export function OnboardingWizard() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [hourlyRate, setHourlyRate] = useState("150");
   const [overtimeThresholdHours, setOvertimeThresholdHours] = useState("37");
   const [overtimeBonusPct, setOvertimeBonusPct] = useState("60");
@@ -49,9 +50,15 @@ export function OnboardingWizard() {
   }
 
   function next() {
-    if (step === 0 && (!name.trim() || !email.trim())) {
-      setError("Udfyld navn og e-mail.");
-      return;
+    if (step === 0) {
+      if (!name.trim() || !email.trim()) {
+        setError("Udfyld navn og e-mail.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Adgangskoden skal være mindst 8 tegn.");
+        return;
+      }
     }
     setError("");
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
@@ -63,9 +70,10 @@ export function OnboardingWizard() {
       try {
         const [y1, m1, d1] = payPeriodStart.split("-").map(Number);
         const [y2, m2, d2] = payPeriodEnd.split("-").map(Number);
-        await completeOnboarding({
+        await signUp({
           name: name.trim(),
           email: email.trim(),
+          password,
           hourlyRate: Number(hourlyRate) || 0,
           overtimeThresholdHours: Number(overtimeThresholdHours) || 0,
           overtimeBonusPct: (Number(overtimeBonusPct) || 0) / 100,
@@ -80,6 +88,7 @@ export function OnboardingWizard() {
           payPeriodEnd: new Date(y2, m2 - 1, d2),
         });
         router.push("/");
+        router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Noget gik galt — prøv igen.");
       }
@@ -92,7 +101,7 @@ export function OnboardingWizard() {
         <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-80">
           <Sparkles size={14} /> Velkommen
         </p>
-        <h1 className="mt-1 text-2xl font-extrabold">Sæt din løn op</h1>
+        <h1 className="mt-1 text-2xl font-extrabold">Opret din WageFlow-konto</h1>
         <p className="mt-1 text-sm opacity-90">Tager under et minut — du kan altid ændre det senere.</p>
         <div className="mt-4 flex gap-1.5">
           {STEPS.map((label, i) => (
@@ -112,13 +121,30 @@ export function OnboardingWizard() {
               <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Dit navn" />
             </Field>
             <Field label="E-mail" required>
-              <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="dig@firma.dk" />
+              <input
+                className={inputClass}
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="dig@firma.dk"
+              />
+            </Field>
+            <Field label="Adgangskode" required>
+              <input
+                className={inputClass}
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mindst 8 tegn"
+              />
             </Field>
           </>
         )}
 
         {step === 1 && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Grundløn (kr/time)">
               <input className={inputClass} type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
             </Field>
@@ -141,7 +167,7 @@ export function OnboardingWizard() {
         )}
 
         {step === 2 && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Skattefradrag (kr/periode)">
               <input className={inputClass} type="number" value={monthlyTaxDeduction} onChange={(e) => setMonthlyTaxDeduction(e.target.value)} />
             </Field>
@@ -181,6 +207,13 @@ export function OnboardingWizard() {
             </Button>
           )}
         </div>
+
+        <p className="text-center text-sm text-[var(--muted)]">
+          Har du allerede en konto?{" "}
+          <a href="/login" className="font-bold text-[var(--accent)] underline underline-offset-2">
+            Log ind
+          </a>
+        </p>
       </div>
     </Card>
   );

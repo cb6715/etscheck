@@ -147,9 +147,13 @@ export function UgeClient({
                 <div className="mt-2">
                   {editingDay === day.dateKey ? (
                     <div className="flex flex-wrap items-end gap-2">
-                      <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-                      <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-                      <Button size="sm" onClick={() => confirmSickDay(day.dateKey)} disabled={pending} className="flex items-center gap-1.5">
+                      <div className="min-w-[110px] flex-1">
+                        <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                      </div>
+                      <div className="min-w-[110px] flex-1">
+                        <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                      </div>
+                      <Button size="sm" onClick={() => confirmSickDay(day.dateKey)} disabled={pending} className="flex shrink-0 items-center gap-1.5">
                         <Check size={14} /> Bekræft
                       </Button>
                     </div>

@@ -26,7 +26,7 @@ export type WageConfig = {
    * from gross BEFORE AM-bidrag is calculated on what's left. */
   atpRatePerHour: number;
   /** Salary advance (forskud) already paid out for the current pay period,
-   * in kr — subtracted from the period's net total so what's shown matches
+   * in kr — subtracted from netto exactly once, by `expectedPayout`, to get
    * what's actually still outstanding. Reset manually in settings whenever
    * a new pay period starts, same as the period dates. */
   advanceAmount: number;
@@ -275,22 +275,56 @@ export function computeWeekGrossFromHours(
 }
 
 /**
- * Absolute net kr for a given cumulative period gross (kr) and cumulative
- * paid seconds — ATP is deducted from gross first (it scales with hours,
- * not kr), THEN AM-bidrag is calculated on what's left, matching the order
- * a real lønseddel uses (AM-indkomst = gross - ATP).
+ * The full step-by-step breakdown behind a cumulative net figure, in the
+ * same order a real lønseddel uses: ATP is deducted from gross first (it
+ * scales with hours, not kr) to get AM-indkomst, THEN AM-bidrag is taken
+ * from that, THEN the pay-period skattefradrag, THEN A-skat on what's left.
+ * This is estimat-math off the settings you configured — not a guarantee of
+ * the actual lønseddel, since real dansk skat also depends on your
+ * skattekort/forskudsopgørelse, which this app has no access to.
+ *
+ * Deliberately does NOT subtract `advanceAmount` — that's a separate,
+ * explicit step (see `expectedPayout` below) so "hvad jeg har tjent netto"
+ * and "hvad jeg reelt får udbetalt" never get silently conflated into one
+ * number, and forskud is only ever subtracted in that one place.
  */
-export function netForCumulative(cumulativeGross: number, cumulativePaidSeconds: number, config: WageConfig): number {
+export type NetBreakdown = {
+  gross: number;
+  atp: number;
+  amIncome: number;
+  amBidrag: number;
+  taxDeduction: number;
+  taxableIncome: number;
+  tax: number;
+  netto: number;
+};
+
+export function breakdownForCumulative(cumulativeGross: number, cumulativePaidSeconds: number, config: WageConfig): NetBreakdown {
   const atp = (cumulativePaidSeconds / 3600) * config.atpRatePerHour;
-  const amBase = cumulativeGross - atp;
-  const amBidrag = amBase * config.amBidragPct;
-  const taxableIncome = Math.max(0, amBase - amBidrag - config.monthlyTaxDeduction);
+  const amIncome = cumulativeGross - atp;
+  const amBidrag = amIncome * config.amBidragPct;
+  const taxDeduction = config.monthlyTaxDeduction;
+  const taxableIncome = Math.max(0, amIncome - amBidrag - taxDeduction);
   const tax = taxableIncome * config.taxRatePct;
-  // Subtracting a flat advance here (rather than per session) cancels out in
-  // netForIncrement's subtraction of two netForCumulative calls, so stored
-  // per-session net amounts are unaffected — only an absolute total (the
-  // wage bar's period total) reflects the advance already paid out.
-  return cumulativeGross - atp - amBidrag - tax - config.advanceAmount;
+  const netto = cumulativeGross - atp - amBidrag - tax;
+  return { gross: cumulativeGross, atp, amIncome, amBidrag, taxDeduction, taxableIncome, tax, netto };
+}
+
+/** Estimeret netto for a given cumulative period gross (kr) and cumulative
+ * paid seconds — see `breakdownForCumulative` for the full step-by-step. */
+export function netForCumulative(cumulativeGross: number, cumulativePaidSeconds: number, config: WageConfig): number {
+  return breakdownForCumulative(cumulativeGross, cumulativePaidSeconds, config).netto;
+}
+
+/** What's actually left to be paid out: netto optjent minus any forskud
+ * already paid out this period. Subtracted exactly once, here — never
+ * inside `netForCumulative`/`netForIncrement`, so a stored per-session net
+ * amount is never the place forskud gets deducted from. Can go negative if
+ * more was advanced than has been earned so far; that's shown as-is rather
+ * than clamped, since it's real information ("du skylder X kr tilbage").
+ */
+export function expectedPayout(netto: number, config: Pick<WageConfig, "advanceAmount">): number {
+  return netto - config.advanceAmount;
 }
 
 /**

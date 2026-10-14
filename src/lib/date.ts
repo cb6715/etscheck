@@ -1,10 +1,15 @@
-// Same split as the rest of this app's wage logic: startOfDay/getWeekRange
-// are naive-local and used as DB range boundaries (gte/lte), never an
-// exact-match key, so there's no orphaned-data risk from them staying
-// naive. Everything DISPLAYED to a human (formatTime, formatDayHeading,
-// weekdayShort) goes through zonedParts so it's always Copenhagen-correct
-// regardless of which timezone the server process itself runs in.
-import { zonedParts } from "./timezone";
+// startOfDay/endOfDay/getWeekRange are used as DB range boundaries (gte/lte)
+// for "today"/"this week" queries, so they MUST resolve to the Danish
+// calendar day/week, not whatever timezone the executing JS runtime happens
+// to be in. Netlify Functions run with TZ=UTC, which is 1-2 hours behind
+// Danish local time (CET/CEST) — a naive `date.setHours(0,0,0,0)` would
+// therefore compute UTC midnight, not Copenhagen midnight, silently
+// misfiling any shift that starts between 00:00-02:00 Danish time into
+// "yesterday". These delegate to the explicitly zone-aware helpers in
+// timezone.ts so the result is correct regardless of server TZ. Everything
+// DISPLAYED to a human (formatTime, formatDayHeading, weekdayShort) also
+// goes through zonedParts for the same reason.
+import { zonedParts, copenhagenStartOfDay, addCalendarDays } from "./timezone";
 
 const WEEKDAYS_SHORT_DA = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
 const MONTHS_DA = [
@@ -13,15 +18,19 @@ const MONTHS_DA = [
 ];
 
 export function startOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return copenhagenStartOfDay(date);
 }
 
 export function endOfDay(date: Date): Date {
-  const d = startOfDay(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  return new Date(addCalendarDays(copenhagenStartOfDay(date), 1).getTime() - 1);
+}
+
+/** Day-of-week (0=søndag..6=lørdag) for the Danish calendar day containing
+ * `date` — computed from the zoned Y-M-D components (not `Date#getDay`,
+ * which like setHours above depends on the runtime's own timezone). */
+function copenhagenWeekday(date: Date): number {
+  const { year, month, day } = zonedParts(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 export function formatShortDate(date: Date): string {
@@ -54,13 +63,10 @@ export function greeting(date: Date): string {
 }
 
 export function getWeekRange(date: Date): { start: Date; end: Date } {
-  const d = startOfDay(date);
-  const day = d.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const start = new Date(d);
-  start.setDate(d.getDate() + diffToMonday);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  end.setHours(23, 59, 59, 999);
+  const dayStart = copenhagenStartOfDay(date);
+  const weekday = copenhagenWeekday(dayStart);
+  const diffToMonday = weekday === 0 ? -6 : 1 - weekday;
+  const start = addCalendarDays(dayStart, diffToMonday);
+  const end = new Date(addCalendarDays(start, 7).getTime() - 1);
   return { start, end };
 }

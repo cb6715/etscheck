@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Save } from "lucide-react";
+import Link from "next/link";
+import { Save, KeyRound, CreditCard, ArrowRight } from "lucide-react";
 import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
-import { updateWageSettings } from "@/lib/actions";
+import { updateWageSettings, changePassword } from "@/lib/actions";
 import { lastWeekdayOfMonth, type WageConfig } from "@/lib/engine";
 import { formatShortDate } from "@/lib/date";
 
@@ -85,7 +86,7 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
 
   return (
     <Card className="space-y-4 p-5">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Grundløn (kr/time)">
           <input className={inputClass} type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
         </Field>
@@ -151,6 +152,73 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
       <Button onClick={save} disabled={pending} className="flex items-center gap-2">
         <Save size={16} /> {pending ? "Gemmer..." : saved ? "Gemt!" : "Gem lønindstillinger"}
       </Button>
+    </Card>
+  );
+}
+
+export function AccountSettings() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    setStatus("idle");
+    setError("");
+    startTransition(async () => {
+      try {
+        await changePassword(currentPassword, newPassword);
+        setCurrentPassword("");
+        setNewPassword("");
+        setStatus("saved");
+        setTimeout(() => setStatus("idle"), 2000);
+      } catch (e) {
+        setStatus("error");
+        setError(e instanceof Error ? e.message : "Kunne ikke skifte adgangskode.");
+      }
+    });
+  }
+
+  return (
+    <Card className="space-y-4 p-5">
+      <h2 className="flex items-center gap-2 text-sm font-extrabold">
+        <KeyRound size={16} /> Skift adgangskode
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Nuværende adgangskode">
+          <input
+            className={inputClass}
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+          />
+        </Field>
+        <Field label="Ny adgangskode">
+          <input
+            className={inputClass}
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Mindst 8 tegn"
+          />
+        </Field>
+      </div>
+      {status === "error" && <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>}
+      <Button onClick={save} disabled={pending || !currentPassword || !newPassword} className="flex items-center gap-2">
+        <KeyRound size={16} /> {pending ? "Gemmer..." : status === "saved" ? "Skiftet!" : "Skift adgangskode"}
+      </Button>
+
+      <div className="border-t border-[var(--border)] pt-4">
+        <Link href="/abonnement" className="flex items-center justify-between text-sm font-bold text-[var(--accent)]">
+          <span className="flex items-center gap-2">
+            <CreditCard size={16} /> Abonnement
+          </span>
+          <ArrowRight size={14} />
+        </Link>
+      </div>
     </Card>
   );
 }

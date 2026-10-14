@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
-import { hasUser } from "@/lib/actions";
+import { getSessionUserId } from "@/lib/session";
 import { OnboardingWizard } from "./onboarding-wizard";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
-  if (await hasUser()) redirect("/");
+  if ((await getSessionUserId()) !== null) redirect("/");
   return (
     <div className="space-y-5">
       <OnboardingWizard />

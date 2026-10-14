@@ -1,10 +1,12 @@
 import { CalendarDays } from "lucide-react";
+import { requirePageAccess } from "@/lib/auth-guard";
 import { getWeekAttendance, getSickDays, getWeekHours } from "@/lib/actions";
 import { UgeClient } from "./uge-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function UgePage() {
+  await requirePageAccess();
   const [attendance, sickDays, weekHours] = await Promise.all([getWeekAttendance(), getSickDays(), getWeekHours()]);
 
   return (

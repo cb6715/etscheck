@@ -1,10 +1,12 @@
 import { Settings } from "lucide-react";
+import { requirePageAccess } from "@/lib/auth-guard";
 import { getWageSettings } from "@/lib/actions";
-import { SettingsForm } from "./settings-form";
+import { SettingsForm, AccountSettings } from "./settings-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function IndstillingerPage() {
+  await requirePageAccess();
   const settings = await getWageSettings();
   return (
     <div className="space-y-5">
@@ -12,6 +14,7 @@ export default async function IndstillingerPage() {
         <Settings size={22} /> Indstillinger
       </h1>
       <SettingsForm settings={settings} />
+      <AccountSettings />
     </div>
   );
 }
