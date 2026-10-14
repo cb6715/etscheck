@@ -67,31 +67,31 @@ export function OnboardingWizard() {
   function submit() {
     setError("");
     startTransition(async () => {
-      try {
-        const [y1, m1, d1] = payPeriodStart.split("-").map(Number);
-        const [y2, m2, d2] = payPeriodEnd.split("-").map(Number);
-        await signUp({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          hourlyRate: Number(hourlyRate) || 0,
-          overtimeThresholdHours: Number(overtimeThresholdHours) || 0,
-          overtimeBonusPct: (Number(overtimeBonusPct) || 0) / 100,
-          breakStartMinutes: timeToMinutes(breakStart),
-          breakEndMinutes: timeToMinutes(breakEnd),
-          monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
-          amBidragPct: (Number(amBidragPct) || 0) / 100,
-          taxRatePct: (Number(taxRatePct) || 0) / 100,
-          atpRatePerHour: Number(atpRatePerHour) || 0,
-          sickPayHourlyRate: Number(sickPayHourlyRate) || 0,
-          payPeriodStart: new Date(y1, m1 - 1, d1),
-          payPeriodEnd: new Date(y2, m2 - 1, d2),
-        });
-        router.push("/");
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Noget gik galt — prøv igen.");
+      const [y1, m1, d1] = payPeriodStart.split("-").map(Number);
+      const [y2, m2, d2] = payPeriodEnd.split("-").map(Number);
+      const result = await signUp({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        hourlyRate: Number(hourlyRate) || 0,
+        overtimeThresholdHours: Number(overtimeThresholdHours) || 0,
+        overtimeBonusPct: (Number(overtimeBonusPct) || 0) / 100,
+        breakStartMinutes: timeToMinutes(breakStart),
+        breakEndMinutes: timeToMinutes(breakEnd),
+        monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
+        amBidragPct: (Number(amBidragPct) || 0) / 100,
+        taxRatePct: (Number(taxRatePct) || 0) / 100,
+        atpRatePerHour: Number(atpRatePerHour) || 0,
+        sickPayHourlyRate: Number(sickPayHourlyRate) || 0,
+        payPeriodStart: new Date(y1, m1 - 1, d1),
+        payPeriodEnd: new Date(y2, m2 - 1, d2),
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      router.push("/");
+      router.refresh();
     });
   }
 

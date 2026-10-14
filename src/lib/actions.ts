@@ -7,6 +7,7 @@ import { getWeekRange, startOfDay, endOfDay } from "@/lib/date";
 import { copenhagenDayKey } from "@/lib/timezone";
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
 import { requireActiveAccess } from "@/lib/access";
+import { ok, fail, type ActionResult } from "@/lib/action-result";
 import {
   computeIntervalEarnings,
   computeSickDayEarnings,
@@ -108,11 +109,11 @@ export type SignUpInput = {
 // anyone can sign up — access to the app itself (beyond login/signup/the
 // subscription page) is gated separately by requireActiveAccess, not by
 // whether an account exists.
-export async function signUp(input: SignUpInput): Promise<void> {
-  if (input.password.length < 8) throw new Error("Adgangskoden skal være mindst 8 tegn.");
+export async function signUp(input: SignUpInput): Promise<ActionResult> {
+  if (input.password.length < 8) return fail("Adgangskoden skal være mindst 8 tegn.");
 
   const existing = await db().sql<{ id: number }>`SELECT id FROM users WHERE email = ${input.email}`;
-  if (existing.length > 0) throw new Error("Der findes allerede en konto med den e-mail.");
+  if (existing.length > 0) return fail("Der findes allerede en konto med den e-mail.");
 
   const passwordHash = hashPassword(input.password);
   const [user] = await db().sql<{ id: number }>`
@@ -134,18 +135,20 @@ export async function signUp(input: SignUpInput): Promise<void> {
   await db().sql`INSERT INTO subscriptions (user_id, status) VALUES (${user.id}, 'none')`;
   await createSession(user.id);
   revalidatePath("/");
+  return ok(undefined);
 }
 
-export async function signIn(email: string, password: string): Promise<void> {
+export async function signIn(email: string, password: string): Promise<ActionResult> {
   const rows = await db().sql<{ id: number; password_hash: string | null }>`
     SELECT id, password_hash FROM users WHERE email = ${email}
   `;
   const user = rows[0];
   if (!user?.password_hash || !verifyPassword(password, user.password_hash)) {
-    throw new Error("Forkert e-mail eller adgangskode.");
+    return fail("Forkert e-mail eller adgangskode.");
   }
   await createSession(user.id);
   revalidatePath("/");
+  return ok(undefined);
 }
 
 export async function signOut(): Promise<void> {
@@ -153,14 +156,15 @@ export async function signOut(): Promise<void> {
   redirect("/login");
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  if (newPassword.length < 8) throw new Error("Den nye adgangskode skal være mindst 8 tegn.");
+export async function changePassword(currentPassword: string, newPassword: string): Promise<ActionResult> {
+  if (newPassword.length < 8) return fail("Den nye adgangskode skal være mindst 8 tegn.");
   const userId = await getUserId();
   const [user] = await db().sql<{ password_hash: string | null }>`SELECT password_hash FROM users WHERE id = ${userId}`;
   if (!user?.password_hash || !verifyPassword(currentPassword, user.password_hash)) {
-    throw new Error("Forkert nuværende adgangskode.");
+    return fail("Forkert nuværende adgangskode.");
   }
   await db().sql`UPDATE users SET password_hash = ${hashPassword(newPassword)} WHERE id = ${userId}`;
+  return ok(undefined);
 }
 
 async function getOrCreateWageSettingsRow(userId: number): Promise<WageSettingsRow> {
@@ -450,7 +454,7 @@ export async function checkOut(): Promise<WageContext> {
   return getWageContext();
 }
 
-export async function undoLastCheckOut(): Promise<WageContext> {
+export async function undoLastCheckOut(): Promise<ActionResult<WageContext>> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
   const rows = await db().sql<SessionRow>`
@@ -460,7 +464,7 @@ export async function undoLastCheckOut(): Promise<WageContext> {
   `;
   const lastClosed = rows[0];
   if (!lastClosed?.check_out_at || Date.now() - new Date(lastClosed.check_out_at).getTime() > UNDO_CHECKOUT_WINDOW_MS) {
-    throw new Error("Der er ikke noget nyligt tjek ud at fortryde.");
+    return fail("Der er ikke noget nyligt tjek ud at fortryde.");
   }
 
   const reopenRows = await db().sql<{ id: number }>`
@@ -475,7 +479,7 @@ export async function undoLastCheckOut(): Promise<WageContext> {
   const config = toConfig(await getOrCreateWageSettingsRow(userId));
   await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/");
-  return getWageContext();
+  return ok(await getWageContext());
 }
 
 export async function updateCheckInTime(newCheckInAt: Date): Promise<WageContext> {
@@ -544,7 +548,7 @@ export async function getWeekAttendance(referenceDate: Date = new Date()): Promi
   return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days };
 }
 
-export async function addSickDay(dateKey: string, startTime: string, endTime: string): Promise<void> {
+export async function addSickDay(dateKey: string, startTime: string, endTime: string): Promise<ActionResult> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
   const [y, m, d] = dateKey.split("-").map(Number);
@@ -552,14 +556,14 @@ export async function addSickDay(dateKey: string, startTime: string, endTime: st
   const [eh, em] = endTime.split(":").map(Number);
   const checkInAt = new Date(y, m - 1, d, sh, sm);
   const checkOutAt = new Date(y, m - 1, d, eh, em);
-  if (!(checkOutAt > checkInAt)) throw new Error("Sluttid skal være efter starttid.");
+  if (!(checkOutAt > checkInAt)) return fail("Sluttid skal være efter starttid.");
 
   const dayStart = startOfDay(checkInAt);
   const dayEnd = endOfDay(checkInAt);
   const existing = await db().sql<{ id: number }>`
     SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${dayStart} AND check_in_at <= ${dayEnd}
   `;
-  if (existing.length > 0) throw new Error("Der er allerede en registrering denne dag — slet den først, hvis den er forkert.");
+  if (existing.length > 0) return fail("Der er allerede en registrering denne dag — slet den først, hvis den er forkert.");
 
   const config = toConfig(await getOrCreateWageSettingsRow(userId));
   const { paidSeconds, grossAmount } = computeSickDayEarnings(checkInAt, checkOutAt, config.sickPayHourlyRate, config);
@@ -573,6 +577,7 @@ export async function addSickDay(dateKey: string, startTime: string, endTime: st
   await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/uge");
   revalidatePath("/");
+  return ok(undefined);
 }
 
 export type SickDayEntry = { id: number; checkInAt: string; checkOutAt: string; hours: number; grossAmount: number; netAmount: number };
@@ -672,8 +677,8 @@ export async function getHistoricalWeeks(): Promise<HistoricalWeek[]> {
   }));
 }
 
-export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<void> {
-  if (!(hours > 0)) throw new Error("Antal timer skal være positivt.");
+export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<ActionResult> {
+  if (!(hours > 0)) return fail("Antal timer skal være positivt.");
   const userId = await getUserId();
   await requireActiveAccess(userId);
   const { start, end } = getWeekRange(weekOf);
@@ -681,7 +686,7 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<vo
   const existing = await db().sql<{ id: number }>`
     SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${start} AND check_in_at <= ${end}
   `;
-  if (existing.length > 0) throw new Error("Der er allerede registreret arbejde i denne uge.");
+  if (existing.length > 0) return fail("Der er allerede registreret arbejde i denne uge.");
 
   const config = toConfig(await getOrCreateWageSettingsRow(userId));
   const [weekSecondsBefore, periodBefore] = await Promise.all([
@@ -698,6 +703,7 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<vo
   await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
+  return ok(undefined);
 }
 
 export async function deleteHistoricalWeek(id: number): Promise<void> {

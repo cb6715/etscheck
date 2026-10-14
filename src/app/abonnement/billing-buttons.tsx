@@ -12,11 +12,9 @@ export function CheckoutButton() {
   function go() {
     setError("");
     startTransition(async () => {
-      try {
-        await startCheckout();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Kunne ikke starte betaling.");
-      }
+      // On success this never returns — startCheckout() redirects server-side.
+      const result = await startCheckout();
+      if (!result.ok) setError(result.error);
     });
   }
 
@@ -37,11 +35,9 @@ export function PortalButton() {
   function go() {
     setError("");
     startTransition(async () => {
-      try {
-        await openBillingPortal();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Kunne ikke åbne abonnementsstyring.");
-      }
+      // On success this never returns — openBillingPortal() redirects server-side.
+      const result = await openBillingPortal();
+      if (!result.ok) setError(result.error);
     });
   }
 

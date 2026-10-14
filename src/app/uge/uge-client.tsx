@@ -82,17 +82,17 @@ export function UgeClient({
   function confirmSickDay(dateKey: string) {
     setError("");
     startTransition(async () => {
-      try {
-        await addSickDay(dateKey, startTime, endTime);
-        const anchor = new Date(attendance.weekStart);
-        const [a, h, days] = await Promise.all([getWeekAttendance(anchor), getWeekHours(anchor), getSickDays()]);
-        setAttendance(a);
-        setWeekHours(h);
-        setSickDays(days);
-        setEditingDay(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Kunne ikke registrere sygedagen.");
+      const result = await addSickDay(dateKey, startTime, endTime);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      const anchor = new Date(attendance.weekStart);
+      const [a, h, days] = await Promise.all([getWeekAttendance(anchor), getWeekHours(anchor), getSickDays()]);
+      setAttendance(a);
+      setWeekHours(h);
+      setSickDays(days);
+      setEditingDay(null);
     });
   }
 

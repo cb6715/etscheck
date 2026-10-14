@@ -191,11 +191,12 @@ export function WageCard() {
   function handleUndoCheckout() {
     setActionError("");
     startTransition(async () => {
-      try {
-        setContext(await undoLastCheckOut());
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : "Kunne ikke fortryde.");
+      const result = await undoLastCheckOut();
+      if (!result.ok) {
+        setActionError(result.error);
+        return;
       }
+      setContext(result.data);
     });
   }
 

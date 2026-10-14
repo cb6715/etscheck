@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSessionUserId } from "@/lib/session";
 import { getAccessState, type AccessState } from "@/lib/access";
 import { stripe, stripeConfigured, stripePriceId } from "@/lib/stripe";
+import { fail, type ActionResult } from "@/lib/action-result";
 
 async function requireUserId(): Promise<number> {
   const userId = await getSessionUserId();
@@ -43,9 +44,14 @@ function appUrl(): string {
 // or stores a card number/CVC itself. The subscription only ever becomes
 // `active` once the checkout.session.completed webhook confirms it; this
 // action itself never marks anyone as subscribed.
-export async function startCheckout(): Promise<void> {
+//
+// Returns an ActionResult only on the failure path — on success it never
+// returns at all (redirect() throws Next's own internal navigation signal,
+// which isn't a Server Function error and isn't subject to production
+// message redaction, unlike a plain `throw new Error(...)`).
+export async function startCheckout(): Promise<ActionResult> {
   const userId = await requireUserId();
-  if (!stripeConfigured()) throw new Error("Betaling er endnu ikke konfigureret.");
+  if (!stripeConfigured()) return fail("Betaling er endnu ikke konfigureret.");
 
   const access = await getAccessState(userId);
   if (access.hasAccess) {
@@ -64,7 +70,7 @@ export async function startCheckout(): Promise<void> {
     allow_promotion_codes: false,
   });
 
-  if (!session.url) throw new Error("Kunne ikke starte betaling.");
+  if (!session.url) return fail("Kunne ikke starte betaling.");
   redirect(session.url);
 }
 
@@ -72,9 +78,9 @@ export async function startCheckout(): Promise<void> {
 // payment method, and cancel, without WageFlow building any of that UI
 // itself. Requires a Portal configuration to exist for the Stripe account
 // (see the setup instructions) or Stripe returns an error naming that.
-export async function openBillingPortal(): Promise<void> {
+export async function openBillingPortal(): Promise<ActionResult> {
   const userId = await requireUserId();
-  if (!stripeConfigured()) throw new Error("Betaling er endnu ikke konfigureret.");
+  if (!stripeConfigured()) return fail("Betaling er endnu ikke konfigureret.");
 
   const customerId = await ensureStripeCustomerId(userId);
   const portal = await stripe().billingPortal.sessions.create({

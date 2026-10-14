@@ -167,16 +167,16 @@ export function AccountSettings() {
     setStatus("idle");
     setError("");
     startTransition(async () => {
-      try {
-        await changePassword(currentPassword, newPassword);
-        setCurrentPassword("");
-        setNewPassword("");
-        setStatus("saved");
-        setTimeout(() => setStatus("idle"), 2000);
-      } catch (e) {
+      const result = await changePassword(currentPassword, newPassword);
+      if (!result.ok) {
         setStatus("error");
-        setError(e instanceof Error ? e.message : "Kunne ikke skifte adgangskode.");
+        setError(result.error);
+        return;
       }
+      setCurrentPassword("");
+      setNewPassword("");
+      setStatus("saved");
+      setTimeout(() => setStatus("idle"), 2000);
     });
   }
 

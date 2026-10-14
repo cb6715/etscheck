@@ -17,13 +17,13 @@ export function LoginForm() {
   function submit() {
     setError("");
     startTransition(async () => {
-      try {
-        await signIn(email.trim(), password);
-        router.push("/");
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Kunne ikke logge ind.");
+      const result = await signIn(email.trim(), password);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      router.push("/");
+      router.refresh();
     });
   }
 

@@ -24,14 +24,14 @@ export function HistoricalWeekEntry({ weekStart, onLogged }: { weekStart: string
       return;
     }
     startTransition(async () => {
-      try {
-        await logHistoricalWeek(new Date(weekStart), h);
-        setHours("");
-        setOpen(false);
-        onLogged();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Kunne ikke gemme ugen.");
+      const result = await logHistoricalWeek(new Date(weekStart), h);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      setHours("");
+      setOpen(false);
+      onLogged();
     });
   }
 
