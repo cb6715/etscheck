@@ -216,3 +216,69 @@ body {
   transform: translateY(2px);
   box-shadow: 0 1px 0 var(--edge-dark);
 }
+
+/* Breaks a section out of the app's narrow max-w-lg column to span the
+   full viewport width — only has an effect once the viewport is wider
+   than that column, so it's a no-op on phones and a full-bleed hero on
+   tablet/desktop. Used only by the marketing landing page. */
+.breakout {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+}
+
+.gradient-text {
+  background: linear-gradient(100deg, var(--accent), var(--accent-2) 60%, var(--accent-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes shine-sweep {
+  0% { transform: translateX(-120%) skewX(-12deg); }
+  100% { transform: translateX(220%) skewX(-12deg); }
+}
+
+.shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent, var(--glass-highlight) 45%, transparent 55%);
+  animation: shine-sweep 3.2s ease-in-out infinite;
+  animation-delay: 1s;
+  pointer-events: none;
+}
+
+/* Scroll reveal: sections fade/slide up once they enter the viewport
+   (toggled by a client-side IntersectionObserver adding .reveal-visible). */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes count-pulse {
+  0%, 100% { text-shadow: 0 0 0 transparent; }
+  50% { text-shadow: 0 0 24px var(--accent-a40); }
+}
+
+.count-pulse {
+  animation: count-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.marquee-track {
+  animation: marquee-scroll 26s linear infinite;
+}

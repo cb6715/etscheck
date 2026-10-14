@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import Link from "next/link";
 import clsx from "clsx";
 
 export function Card({
@@ -25,6 +26,7 @@ export function Button({
   className,
   disabled,
   fullWidth,
+  href,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -34,6 +36,11 @@ export function Button({
   className?: string;
   disabled?: boolean;
   fullWidth?: boolean;
+  /** Renders as a Next.js Link styled identically to the button, instead
+   * of a <button> — for navigation, never for an action. Avoids nesting a
+   * <button> inside an <a> (invalid HTML) when a CTA both looks like a
+   * button and navigates. */
+  href?: string;
 }) {
   const variants = {
     primary:
@@ -43,21 +50,27 @@ export function Button({
     danger: "bg-[var(--danger)] text-white hover:brightness-110",
   };
   const sizes = { sm: "text-sm px-4 py-2 rounded-full", md: "text-sm px-5 py-3 rounded-full", lg: "text-base px-6 py-4 rounded-full" };
+  const classes = clsx(
+    "btn-3d font-bold disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none select-none",
+    variants[variant],
+    (variant === "ghost" || variant === "secondary") && "!shadow-none",
+    variant === "primary" && "shadow-[0_0_24px_-4px_var(--accent-a40)]",
+    sizes[size],
+    fullWidth && "w-full",
+    "inline-flex items-center justify-center",
+    className
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className={classes}>
+        {children}
+      </Link>
+    );
+  }
+
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className={clsx(
-        "btn-3d font-bold disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none select-none",
-        variants[variant],
-        (variant === "ghost" || variant === "secondary") && "!shadow-none",
-        variant === "primary" && "shadow-[0_0_24px_-4px_var(--accent-a40)]",
-        sizes[size],
-        fullWidth && "w-full",
-        className
-      )}
-    >
+    <button type={type} onClick={onClick} disabled={disabled} className={classes}>
       {children}
     </button>
   );

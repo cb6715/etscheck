@@ -1,14 +1,21 @@
+import { redirect } from "next/navigation";
 import { CalendarDays } from "lucide-react";
 import Link from "next/link";
-import { requirePageAccess } from "@/lib/auth-guard";
+import { getSessionUserId } from "@/lib/session";
+import { getAccessState } from "@/lib/access";
 import { WageCard } from "@/components/wage-card";
 import { Card } from "@/components/ui/primitives";
 import { greeting } from "@/lib/date";
+import { LandingPage } from "@/components/landing/landing-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  await requirePageAccess();
+  const userId = await getSessionUserId();
+  if (userId === null) return <LandingPage />;
+
+  const access = await getAccessState(userId);
+  if (!access.hasAccess) redirect("/abonnement");
 
   return (
     <div className="space-y-5">

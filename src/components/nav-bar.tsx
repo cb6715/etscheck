@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Clock, CalendarDays, Settings, LogOut } from "lucide-react";
+import { Clock, CalendarDays, Settings, LogOut, LogIn } from "lucide-react";
 import clsx from "clsx";
 import { signOut } from "@/lib/actions";
 
@@ -13,11 +13,11 @@ const LINKS = [
   { href: "/indstillinger", label: "Indstillinger", icon: Settings },
 ];
 
-const LOGGED_OUT_ROUTES = ["/login", "/onboarding"];
+const AUTH_FORM_ROUTES = ["/login", "/onboarding"];
 
-export function NavBar() {
+export function NavBar({ loggedIn }: { loggedIn: boolean }) {
   const pathname = usePathname();
-  const loggedOutPage = LOGGED_OUT_ROUTES.includes(pathname);
+  const onAuthForm = AUTH_FORM_ROUTES.includes(pathname);
 
   return (
     <header className="sticky top-0 z-40 px-3 sm:px-4 [padding-top:max(0.75rem,env(safe-area-inset-top))]">
@@ -32,7 +32,8 @@ export function NavBar() {
           />
           WageFlow
         </Link>
-        {!loggedOutPage && (
+
+        {loggedIn && (
           <nav className="flex min-w-0 items-center gap-1">
             {LINKS.map((link) => {
               const active = pathname === link.href;
@@ -63,6 +64,15 @@ export function NavBar() {
               </button>
             </form>
           </nav>
+        )}
+
+        {!loggedIn && !onAuthForm && (
+          <Link
+            href="/login"
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] px-4 py-1.5 text-sm font-bold text-[var(--accent-foreground)] shadow-[0_0_16px_-2px_var(--accent-a40)] transition hover:brightness-105"
+          >
+            <LogIn size={14} /> Log ind
+          </Link>
         )}
       </div>
     </header>
