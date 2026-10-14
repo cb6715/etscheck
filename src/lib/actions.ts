@@ -1,0 +1,563 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { db } from "@/lib/db";
+import { getWeekRange, startOfDay, endOfDay } from "@/lib/date";
+import { copenhagenDayKey } from "@/lib/timezone";
+import {
+  computeIntervalEarnings,
+  computeSickDayEarnings,
+  netForIncrement,
+  getPayPeriodRange,
+  weeklyOvertimeThresholdHours,
+  type WageConfig,
+} from "@/lib/engine";
+
+// ─────────────────────────────────────────────────────────────
+// ROW MAPPING
+// ─────────────────────────────────────────────────────────────
+
+type WageSettingsRow = {
+  hourly_rate: number;
+  overtime_threshold_hours: number;
+  overtime_bonus_pct: number;
+  night_supplement: number;
+  night_start_hour: number;
+  night_end_hour: number;
+  break_start_minutes: number;
+  break_end_minutes: number;
+  monthly_tax_deduction: number;
+  am_bidrag_pct: number;
+  tax_rate_pct: number;
+  atp_rate_per_hour: number;
+  sick_pay_hourly_rate: number;
+  advance_amount: number;
+  pay_period_start: Date;
+  pay_period_end: Date;
+};
+
+function toConfig(row: WageSettingsRow): WageConfig {
+  return {
+    hourlyRate: row.hourly_rate,
+    overtimeThresholdHours: row.overtime_threshold_hours,
+    overtimeBonusPct: row.overtime_bonus_pct,
+    nightSupplement: row.night_supplement,
+    nightStartHour: row.night_start_hour,
+    nightEndHour: row.night_end_hour,
+    breakStartMinutes: row.break_start_minutes,
+    breakEndMinutes: row.break_end_minutes,
+    monthlyTaxDeduction: row.monthly_tax_deduction,
+    amBidragPct: row.am_bidrag_pct,
+    taxRatePct: row.tax_rate_pct,
+    atpRatePerHour: row.atp_rate_per_hour,
+    sickPayHourlyRate: row.sick_pay_hourly_rate,
+    advanceAmount: row.advance_amount,
+    payPeriodStart: new Date(row.pay_period_start),
+    payPeriodEnd: new Date(row.pay_period_end),
+  };
+}
+
+type SessionRow = {
+  id: number;
+  check_in_at: Date;
+  check_out_at: Date | null;
+  paid_seconds: number | null;
+  gross_amount: number | null;
+  net_amount: number | null;
+  is_sick_day: boolean;
+};
+
+// ─────────────────────────────────────────────────────────────
+// USER / SETTINGS
+// ─────────────────────────────────────────────────────────────
+
+// Single-tenant app for now — "the user" is whoever the deploy-time seed
+// migration created (or whoever completed onboarding). No login screen.
+let cachedUserId: number | null = null;
+
+async function getUserId(): Promise<number> {
+  if (cachedUserId !== null) return cachedUserId;
+  const rows = await db().sql<{ id: number }>`SELECT id FROM users ORDER BY id ASC LIMIT 1`;
+  if (rows.length === 0) throw new Error("Ingen bruger fundet — gennemfør onboarding først.");
+  cachedUserId = rows[0].id;
+  return cachedUserId;
+}
+
+export async function hasUser(): Promise<boolean> {
+  const rows = await db().sql<{ id: number }>`SELECT id FROM users LIMIT 1`;
+  return rows.length > 0;
+}
+
+export async function hasWageSettings(): Promise<boolean> {
+  const rows = await db().sql<{ id: number }>`SELECT id FROM wage_settings LIMIT 1`;
+  return rows.length > 0;
+}
+
+export type OnboardingInput = {
+  name: string;
+  email: string;
+  hourlyRate: number;
+  overtimeThresholdHours: number;
+  overtimeBonusPct: number;
+  breakStartMinutes: number;
+  breakEndMinutes: number;
+  monthlyTaxDeduction: number;
+  amBidragPct: number;
+  taxRatePct: number;
+  atpRatePerHour: number;
+  sickPayHourlyRate: number;
+  payPeriodStart: Date;
+  payPeriodEnd: Date;
+};
+
+// Creates the one user + their wage settings — used by the onboarding
+// wizard the one time the deploy-time seed migration hasn't already done
+// this (e.g. a fresh clone of this app for someone else).
+export async function completeOnboarding(input: OnboardingInput): Promise<void> {
+  const existing = await db().sql<{ id: number }>`SELECT id FROM users LIMIT 1`;
+  if (existing.length > 0) throw new Error("Der er allerede en bruger oprettet.");
+
+  const [user] = await db().sql<{ id: number }>`
+    INSERT INTO users (name, email) VALUES (${input.name}, ${input.email}) RETURNING id
+  `;
+  await db().sql`
+    INSERT INTO wage_settings (
+      user_id, hourly_rate, overtime_threshold_hours, overtime_bonus_pct,
+      break_start_minutes, break_end_minutes, monthly_tax_deduction,
+      am_bidrag_pct, tax_rate_pct, atp_rate_per_hour, sick_pay_hourly_rate,
+      pay_period_start, pay_period_end
+    ) VALUES (
+      ${user.id}, ${input.hourlyRate}, ${input.overtimeThresholdHours}, ${input.overtimeBonusPct},
+      ${input.breakStartMinutes}, ${input.breakEndMinutes}, ${input.monthlyTaxDeduction},
+      ${input.amBidragPct}, ${input.taxRatePct}, ${input.atpRatePerHour}, ${input.sickPayHourlyRate},
+      ${input.payPeriodStart}, ${input.payPeriodEnd}
+    )
+  `;
+  cachedUserId = user.id;
+  revalidatePath("/");
+}
+
+async function getOrCreateWageSettingsRow(userId: number): Promise<WageSettingsRow> {
+  const rows = await db().sql<WageSettingsRow>`SELECT * FROM wage_settings WHERE user_id = ${userId}`;
+  if (rows.length > 0) return rows[0];
+  const [row] = await db().sql<WageSettingsRow>`
+    INSERT INTO wage_settings (user_id) VALUES (${userId}) RETURNING *
+  `;
+  return row;
+}
+
+export async function getWageSettings(): Promise<WageConfig> {
+  const userId = await getUserId();
+  return toConfig(await getOrCreateWageSettingsRow(userId));
+}
+
+export type WageSettingsInput = Partial<WageConfig>;
+
+const COLUMN_BY_FIELD: Record<keyof WageConfig, string> = {
+  hourlyRate: "hourly_rate",
+  overtimeThresholdHours: "overtime_threshold_hours",
+  overtimeBonusPct: "overtime_bonus_pct",
+  nightSupplement: "night_supplement",
+  nightStartHour: "night_start_hour",
+  nightEndHour: "night_end_hour",
+  breakStartMinutes: "break_start_minutes",
+  breakEndMinutes: "break_end_minutes",
+  monthlyTaxDeduction: "monthly_tax_deduction",
+  amBidragPct: "am_bidrag_pct",
+  taxRatePct: "tax_rate_pct",
+  atpRatePerHour: "atp_rate_per_hour",
+  sickPayHourlyRate: "sick_pay_hourly_rate",
+  advanceAmount: "advance_amount",
+  payPeriodStart: "pay_period_start",
+  payPeriodEnd: "pay_period_end",
+};
+
+export async function updateWageSettings(input: WageSettingsInput): Promise<void> {
+  const userId = await getUserId();
+  await getOrCreateWageSettingsRow(userId);
+
+  const entries = Object.entries(input) as [keyof WageConfig, WageConfig[keyof WageConfig]][];
+  for (const [field, value] of entries) {
+    const column = COLUMN_BY_FIELD[field];
+    const client = db();
+    await client.sql`UPDATE wage_settings SET ${client.sql.identifier(column)} = ${value}, updated_at = now() WHERE user_id = ${userId}`;
+  }
+
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
+}
+
+// ─────────────────────────────────────────────────────────────
+// OVERTIME / ELAPSED-TIME HELPERS
+// ─────────────────────────────────────────────────────────────
+
+async function priorWeekElapsedSeconds(userId: number, before: Date): Promise<number> {
+  const { start } = getWeekRange(before);
+  const rows = await db().sql<{ check_in_at: Date; check_out_at: Date }>`
+    SELECT check_in_at, check_out_at FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+      AND check_in_at >= ${start} AND check_in_at < ${before}
+  `;
+  return rows.reduce((sum, r) => sum + (new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 1000, 0);
+}
+
+async function distinctWorkedDaysThisWeek(userId: number, referenceDate: Date): Promise<number> {
+  const { start, end } = getWeekRange(referenceDate);
+  const rows = await db().sql<{ check_in_at: Date }>`
+    SELECT check_in_at FROM work_sessions
+    WHERE user_id = ${userId} AND is_sick_day = false AND check_in_at >= ${start} AND check_in_at <= ${end}
+  `;
+  return new Set(rows.map((r) => copenhagenDayKey(new Date(r.check_in_at)))).size;
+}
+
+async function recomputePeriodSessions(userId: number, config: WageConfig): Promise<void> {
+  const { start, end } = getPayPeriodRange(config);
+  const sessions = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+      AND check_in_at >= ${start} AND check_in_at < ${end}
+    ORDER BY check_in_at ASC
+  `;
+  if (sessions.length === 0) return;
+
+  const weeks = new Map<string, SessionRow[]>();
+  for (const s of sessions) {
+    const key = getWeekRange(new Date(s.check_in_at)).start.toISOString();
+    const list = weeks.get(key);
+    if (list) list.push(s);
+    else weeks.set(key, [s]);
+  }
+  const currentWeekKey = getWeekRange(new Date()).start.toISOString();
+
+  for (const [weekKey, weekSessions] of weeks) {
+    const isCurrentWeek = weekKey === currentWeekKey;
+    const finalDaysThisWeek = new Set(weekSessions.map((s) => copenhagenDayKey(new Date(s.check_in_at)))).size;
+
+    let elapsedThisWeek = 0;
+    const daysSeenSoFar = new Set<string>();
+    for (const s of weekSessions) {
+      daysSeenSoFar.add(copenhagenDayKey(new Date(s.check_in_at)));
+      const daysForThreshold = isCurrentWeek ? daysSeenSoFar.size : finalDaysThisWeek;
+      const thresholdHours = weeklyOvertimeThresholdHours(daysForThreshold, config);
+
+      const checkInAt = new Date(s.check_in_at);
+      const checkOutAt = new Date(s.check_out_at!);
+      const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, checkOutAt, elapsedThisWeek, thresholdHours, config);
+      elapsedThisWeek += (checkOutAt.getTime() - checkInAt.getTime()) / 1000;
+      if (paidSeconds !== s.paid_seconds || Math.abs(grossAmount - (s.gross_amount ?? 0)) > 0.001) {
+        await db().sql`UPDATE work_sessions SET paid_seconds = ${Math.round(paidSeconds)}, gross_amount = ${grossAmount} WHERE id = ${s.id}`;
+      }
+    }
+  }
+}
+
+async function priorPeriodTotals(userId: number, before: Date, config: WageConfig) {
+  const { start, end } = getPayPeriodRange(config);
+  const windowEnd = before < end ? before : end;
+  const rows = await db().sql<{ gross_amount: number | null; paid_seconds: number | null }>`
+    SELECT gross_amount, paid_seconds FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL
+      AND check_in_at >= ${start} AND check_in_at < ${windowEnd}
+  `;
+  return rows.reduce(
+    (acc, r) => ({ gross: acc.gross + (r.gross_amount ?? 0), paidSeconds: acc.paidSeconds + (r.paid_seconds ?? 0) }),
+    { gross: 0, paidSeconds: 0 }
+  );
+}
+
+async function rebalancePeriodNetAmounts(userId: number, config: WageConfig): Promise<void> {
+  const { start, end } = getPayPeriodRange(config);
+  const sessions = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND check_in_at >= ${start} AND check_in_at < ${end}
+    ORDER BY check_in_at ASC
+  `;
+
+  let cumulativeGross = 0;
+  let cumulativePaidSeconds = 0;
+  for (const s of sessions) {
+    const gross = s.gross_amount ?? 0;
+    const seconds = s.paid_seconds ?? 0;
+    const net = netForIncrement(cumulativeGross, cumulativePaidSeconds, gross, seconds, config);
+    cumulativeGross += gross;
+    cumulativePaidSeconds += seconds;
+    if (Math.abs((s.net_amount ?? 0) - net) > 0.001) {
+      await db().sql`UPDATE work_sessions SET net_amount = ${net} WHERE id = ${s.id}`;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// TJEK IND/UD
+// ─────────────────────────────────────────────────────────────
+
+const UNDO_CHECKOUT_WINDOW_MS = 30 * 60 * 1000;
+
+export type WageContext = {
+  config: WageConfig;
+  openSession: { id: number; checkInAt: string } | null;
+  priorWeekElapsedSeconds: number;
+  thisWeekThresholdHours: number;
+  priorPeriodGross: number;
+  priorPeriodPaidSeconds: number;
+  canUndoCheckout: boolean;
+};
+
+export async function getWageContext(): Promise<WageContext> {
+  const userId = await getUserId();
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+
+  const [openRows, lastClosedRows] = await Promise.all([
+    db().sql<SessionRow>`SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1`,
+    db().sql<{ check_out_at: Date }>`
+      SELECT check_out_at FROM work_sessions
+      WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+      ORDER BY check_out_at DESC LIMIT 1
+    `,
+  ]);
+  const openSession = openRows[0] ?? null;
+
+  const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
+  await recomputePeriodSessions(userId, config);
+  const [weekSeconds, periodTotals, daysWorkedThisWeek] = await Promise.all([
+    priorWeekElapsedSeconds(userId, referenceTime),
+    priorPeriodTotals(userId, referenceTime, config),
+    distinctWorkedDaysThisWeek(userId, referenceTime),
+  ]);
+
+  const lastClosed = lastClosedRows[0];
+  return {
+    config,
+    openSession: openSession ? { id: openSession.id, checkInAt: new Date(openSession.check_in_at).toISOString() } : null,
+    priorWeekElapsedSeconds: weekSeconds,
+    thisWeekThresholdHours: weeklyOvertimeThresholdHours(daysWorkedThisWeek, config),
+    priorPeriodGross: periodTotals.gross,
+    priorPeriodPaidSeconds: periodTotals.paidSeconds,
+    canUndoCheckout: Boolean(
+      lastClosed?.check_out_at && Date.now() - new Date(lastClosed.check_out_at).getTime() < UNDO_CHECKOUT_WINDOW_MS
+    ),
+  };
+}
+
+export async function checkIn(): Promise<WageContext> {
+  const userId = await getUserId();
+  const existing = await db().sql<{ id: number }>`SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL`;
+  if (existing.length === 0) {
+    await db().sql`INSERT INTO work_sessions (user_id, check_in_at) VALUES (${userId}, now())`;
+  }
+  revalidatePath("/");
+  return getWageContext();
+}
+
+export async function checkOut(): Promise<WageContext> {
+  const userId = await getUserId();
+  const rows = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1
+  `;
+  const session = rows[0];
+
+  if (session) {
+    const config = toConfig(await getOrCreateWageSettingsRow(userId));
+    await recomputePeriodSessions(userId, config);
+    const checkInAt = new Date(session.check_in_at);
+    const now = new Date();
+    const [weekSecondsBefore, periodBefore, daysWorkedThisWeek] = await Promise.all([
+      priorWeekElapsedSeconds(userId, checkInAt),
+      priorPeriodTotals(userId, checkInAt, config),
+      distinctWorkedDaysThisWeek(userId, checkInAt),
+    ]);
+    const thresholdHours = weeklyOvertimeThresholdHours(daysWorkedThisWeek, config);
+    const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, now, weekSecondsBefore, thresholdHours, config);
+    const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
+
+    await db().sql`
+      UPDATE work_sessions SET check_out_at = ${now}, paid_seconds = ${Math.round(paidSeconds)}, gross_amount = ${grossAmount}, net_amount = ${netAmount}
+      WHERE id = ${session.id}
+    `;
+    await rebalancePeriodNetAmounts(userId, config);
+  }
+
+  revalidatePath("/");
+  return getWageContext();
+}
+
+export async function undoLastCheckOut(): Promise<WageContext> {
+  const userId = await getUserId();
+  const rows = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+    ORDER BY check_out_at DESC LIMIT 1
+  `;
+  const lastClosed = rows[0];
+  if (!lastClosed?.check_out_at || Date.now() - new Date(lastClosed.check_out_at).getTime() > UNDO_CHECKOUT_WINDOW_MS) {
+    throw new Error("Der er ikke noget nyligt tjek ud at fortryde.");
+  }
+
+  const reopenRows = await db().sql<{ id: number }>`
+    SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL AND id != ${lastClosed.id}
+    ORDER BY check_in_at DESC LIMIT 1
+  `;
+  if (reopenRows[0]) {
+    await db().sql`DELETE FROM work_sessions WHERE id = ${reopenRows[0].id}`;
+  }
+  await db().sql`UPDATE work_sessions SET check_out_at = NULL, paid_seconds = NULL, gross_amount = NULL, net_amount = NULL WHERE id = ${lastClosed.id}`;
+
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/");
+  return getWageContext();
+}
+
+export async function updateCheckInTime(newCheckInAt: Date): Promise<WageContext> {
+  const userId = await getUserId();
+  const rows = await db().sql<{ id: number }>`SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL LIMIT 1`;
+  if (rows[0]) {
+    const now = new Date();
+    const clamped = newCheckInAt > now ? now : newCheckInAt;
+    await db().sql`UPDATE work_sessions SET check_in_at = ${clamped} WHERE id = ${rows[0].id}`;
+  }
+  revalidatePath("/");
+  return getWageContext();
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYGEDAGE
+// ─────────────────────────────────────────────────────────────
+
+export type DayAttendance = {
+  dateKey: string;
+  weekday: number;
+  label: string;
+  isWeekend: boolean;
+  status: "worked" | "sick" | "open" | "none";
+  sessionId: number | null;
+};
+
+export type WeekAttendance = { weekStart: string; weekEnd: string; days: DayAttendance[] };
+
+export async function getWeekAttendance(referenceDate: Date = new Date()): Promise<WeekAttendance> {
+  const userId = await getUserId();
+  const { start, end } = getWeekRange(referenceDate);
+  const sessions = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${start} AND check_in_at <= ${end}
+    ORDER BY check_in_at ASC
+  `;
+
+  const byDay = new Map<string, SessionRow>();
+  for (const s of sessions) {
+    const key = copenhagenDayKey(new Date(s.check_in_at));
+    if (!byDay.has(key)) byDay.set(key, s);
+  }
+
+  const WEEKDAYS_SHORT_DA = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
+  const days: DayAttendance[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = copenhagenDayKey(d);
+    const session = byDay.get(key);
+    const weekday = d.getDay();
+    let status: DayAttendance["status"] = "none";
+    if (session) status = session.is_sick_day ? "sick" : session.check_out_at ? "worked" : "open";
+    days.push({
+      dateKey: key,
+      weekday,
+      label: WEEKDAYS_SHORT_DA[weekday],
+      isWeekend: weekday === 0 || weekday === 6,
+      status,
+      sessionId: session?.id ?? null,
+    });
+  }
+
+  return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days };
+}
+
+export async function addSickDay(dateKey: string, startTime: string, endTime: string): Promise<void> {
+  const userId = await getUserId();
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const checkInAt = new Date(y, m - 1, d, sh, sm);
+  const checkOutAt = new Date(y, m - 1, d, eh, em);
+  if (!(checkOutAt > checkInAt)) throw new Error("Sluttid skal være efter starttid.");
+
+  const dayStart = startOfDay(checkInAt);
+  const dayEnd = endOfDay(checkInAt);
+  const existing = await db().sql<{ id: number }>`
+    SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${dayStart} AND check_in_at <= ${dayEnd}
+  `;
+  if (existing.length > 0) throw new Error("Der er allerede en registrering denne dag — slet den først, hvis den er forkert.");
+
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const { paidSeconds, grossAmount } = computeSickDayEarnings(checkInAt, checkOutAt, config.sickPayHourlyRate, config);
+  const periodBefore = await priorPeriodTotals(userId, checkInAt, config);
+  const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
+
+  await db().sql`
+    INSERT INTO work_sessions (user_id, check_in_at, check_out_at, paid_seconds, gross_amount, net_amount, is_sick_day)
+    VALUES (${userId}, ${checkInAt}, ${checkOutAt}, ${Math.round(paidSeconds)}, ${grossAmount}, ${netAmount}, true)
+  `;
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/uge");
+  revalidatePath("/");
+}
+
+export type SickDayEntry = { id: number; checkInAt: string; checkOutAt: string; hours: number; grossAmount: number; netAmount: number };
+
+export async function getSickDays(): Promise<SickDayEntry[]> {
+  const userId = await getUserId();
+  const rows = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions WHERE user_id = ${userId} AND is_sick_day = true ORDER BY check_in_at DESC
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    checkInAt: new Date(r.check_in_at).toISOString(),
+    checkOutAt: new Date(r.check_out_at!).toISOString(),
+    hours: (r.paid_seconds ?? 0) / 3600,
+    grossAmount: r.gross_amount ?? 0,
+    netAmount: r.net_amount ?? 0,
+  }));
+}
+
+export async function deleteSickDay(id: number): Promise<void> {
+  const userId = await getUserId();
+  await db().sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_sick_day = true`;
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/uge");
+  revalidatePath("/");
+}
+
+// ─────────────────────────────────────────────────────────────
+// UGE-OVERBLIK
+// ─────────────────────────────────────────────────────────────
+
+export type WeekHoursDay = { id: number; checkInAt: string; checkOutAt: string | null; hours: number; isSickDay: boolean; isOpen: boolean };
+export type WeekHoursSummary = { weekStart: string; weekEnd: string; days: WeekHoursDay[]; totalHours: number };
+
+export async function getWeekHours(referenceDate: Date = new Date()): Promise<WeekHoursSummary> {
+  const userId = await getUserId();
+  const { start, end } = getWeekRange(referenceDate);
+  const sessions = await db().sql<SessionRow>`
+    SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${start} AND check_in_at <= ${end}
+    ORDER BY check_in_at ASC
+  `;
+
+  const now = Date.now();
+  const days: WeekHoursDay[] = sessions.map((s) => {
+    const isOpen = !s.check_out_at;
+    const hours = isOpen ? (now - new Date(s.check_in_at).getTime()) / 3600000 : (s.paid_seconds ?? 0) / 3600;
+    return {
+      id: s.id,
+      checkInAt: new Date(s.check_in_at).toISOString(),
+      checkOutAt: s.check_out_at ? new Date(s.check_out_at).toISOString() : null,
+      hours,
+      isSickDay: s.is_sick_day,
+      isOpen,
+    };
+  });
+
+  return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days, totalHours: days.reduce((sum, d) => sum + d.hours, 0) };
+}
