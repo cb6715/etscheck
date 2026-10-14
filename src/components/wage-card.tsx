@@ -204,13 +204,15 @@ export function WageCard() {
     return mountedAt >= exclusiveEnd.getTime();
   }, [context, mountedAt]);
 
-  // Milestone toasts ("du er over 2.000 kr") — fires once per crossed
-  // multiple of MILESTONE_STEP_KR. The first render just records the
-  // current milestone as the baseline so re-opening the app doesn't
+  // Milestone toasts ("du er over 2.000 kr") — tracks NETTO, not brutto,
+  // since that's the number people actually care about. Fires once per
+  // crossed multiple of MILESTONE_STEP_KR. The first render just records
+  // the current milestone as the baseline so re-opening the app doesn't
   // re-announce every threshold already passed in an earlier session.
+  const netto = breakdown?.netto ?? null;
   useEffect(() => {
-    if (cumulativeGross === null) return;
-    const currentMilestone = Math.floor(cumulativeGross / MILESTONE_STEP_KR);
+    if (netto === null) return;
+    const currentMilestone = Math.floor(netto / MILESTONE_STEP_KR);
     if (lastMilestoneRef.current === null) {
       lastMilestoneRef.current = currentMilestone;
       return;
@@ -218,14 +220,14 @@ export function WageCard() {
     if (currentMilestone > lastMilestoneRef.current) {
       for (let m = lastMilestoneRef.current + 1; m <= currentMilestone; m++) {
         notify(
-          `🎉 Du er over ${(m * MILESTONE_STEP_KR).toLocaleString("da-DK")} kr`,
-          `Du har nu optjent ${formatKr(cumulativeGross)} brutto i denne lønperiode.`,
+          `🎉 Du er over ${(m * MILESTONE_STEP_KR).toLocaleString("da-DK")} kr netto`,
+          `Du har nu optjent ${formatKr(netto)} netto i denne lønperiode.`,
           "milestone"
         );
       }
       lastMilestoneRef.current = currentMilestone;
     }
-  }, [cumulativeGross, notify]);
+  }, [netto, notify]);
 
   // Overtime toast — fires once on the false→true transition.
   useEffect(() => {
