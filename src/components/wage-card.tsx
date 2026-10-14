@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { LogIn, LogOut, Wallet, AlertTriangle, Check, X, Undo2, Gift } from "lucide-react";
+import { LogIn, LogOut, Wallet, AlertTriangle, Check, X, Undo2, Gift, Clock, CalendarRange } from "lucide-react";
 import { Card, Button, Badge } from "@/components/ui/primitives";
 import {
   checkIn,
@@ -99,6 +99,16 @@ export function WageCard() {
       console.error("Feriepenge calc failed:", e);
       return null;
     }
+  }, [context, live]);
+
+  const hoursToday = useMemo(() => {
+    if (!context) return null;
+    return (context.priorTodayPaidSeconds + (live?.paidSeconds ?? 0)) / 3600;
+  }, [context, live]);
+
+  const hoursThisPeriod = useMemo(() => {
+    if (!context) return null;
+    return (context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0)) / 3600;
   }, [context, live]);
 
   function handleCheckIn() {
@@ -202,6 +212,23 @@ export function WageCard() {
       </div>
 
       <div className="space-y-3 p-5">
+        {(hoursToday !== null || hoursThisPeriod !== null) && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-[var(--surface-2)] px-4 py-3">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
+                <Clock size={13} /> I dag
+              </span>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums">{formatHours(hoursToday ?? 0)}</div>
+            </div>
+            <div className="rounded-2xl bg-[var(--surface-2)] px-4 py-3">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
+                <CalendarRange size={13} /> Denne periode
+              </span>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums">{formatHours(hoursThisPeriod ?? 0)}</div>
+            </div>
+          </div>
+        )}
+
         {actionError && <p className="text-sm font-semibold text-[var(--danger)]">{actionError}</p>}
 
         {!editingCheckIn ? (

@@ -14,6 +14,7 @@ import {
   type WeekHoursSummary,
 } from "@/lib/actions";
 import { formatShortDate } from "@/lib/date";
+import { HistoricalWeekEntry } from "./historical-week-entry";
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
@@ -162,6 +163,11 @@ export function UgeClient({
             </Card>
           ))}
       </div>
+
+      {attendance.days.filter((d) => !d.isWeekend).every((d) => d.status === "none") && (
+        <HistoricalWeekEntry weekStart={attendance.weekStart} onLogged={() => reloadAll(attendance.weekStart)} />
+      )}
+
       {error && <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>}
 
       {sickDays.length > 0 && (

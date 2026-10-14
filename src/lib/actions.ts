@@ -7,6 +7,7 @@ import { copenhagenDayKey } from "@/lib/timezone";
 import {
   computeIntervalEarnings,
   computeSickDayEarnings,
+  computeWeekGrossFromHours,
   netForIncrement,
   getPayPeriodRange,
   weeklyOvertimeThresholdHours,
@@ -65,6 +66,7 @@ type SessionRow = {
   gross_amount: number | null;
   net_amount: number | null;
   is_sick_day: boolean;
+  is_manual_entry: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -203,6 +205,20 @@ async function priorWeekElapsedSeconds(userId: number, before: Date): Promise<nu
   return rows.reduce((sum, r) => sum + (new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 1000, 0);
 }
 
+// Paid seconds already worked TODAY (Danish calendar day), from closed,
+// real sessions strictly before `before` — the baseline the live "timer i
+// dag" display adds the open session's live ticking seconds to, same
+// pattern as priorPeriodPaidSeconds for the kr figure.
+async function priorTodayPaidSeconds(userId: number, before: Date): Promise<number> {
+  const dayStart = startOfDay(before);
+  const rows = await db().sql<{ paid_seconds: number | null }>`
+    SELECT paid_seconds FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+      AND check_in_at >= ${dayStart} AND check_in_at < ${before}
+  `;
+  return rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
+}
+
 async function distinctWorkedDaysThisWeek(userId: number, referenceDate: Date): Promise<number> {
   const { start, end } = getWeekRange(referenceDate);
   const rows = await db().sql<{ check_in_at: Date }>`
@@ -216,7 +232,7 @@ async function recomputePeriodSessions(userId: number, config: WageConfig): Prom
   const { start, end } = getPayPeriodRange(config);
   const sessions = await db().sql<SessionRow>`
     SELECT * FROM work_sessions
-    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false AND is_manual_entry = false
       AND check_in_at >= ${start} AND check_in_at < ${end}
     ORDER BY check_in_at ASC
   `;
@@ -302,6 +318,7 @@ export type WageContext = {
   thisWeekThresholdHours: number;
   priorPeriodGross: number;
   priorPeriodPaidSeconds: number;
+  priorTodayPaidSeconds: number;
   canUndoCheckout: boolean;
 };
 
@@ -321,10 +338,11 @@ export async function getWageContext(): Promise<WageContext> {
 
   const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
   await recomputePeriodSessions(userId, config);
-  const [weekSeconds, periodTotals, daysWorkedThisWeek] = await Promise.all([
+  const [weekSeconds, periodTotals, daysWorkedThisWeek, todaySeconds] = await Promise.all([
     priorWeekElapsedSeconds(userId, referenceTime),
     priorPeriodTotals(userId, referenceTime, config),
     distinctWorkedDaysThisWeek(userId, referenceTime),
+    priorTodayPaidSeconds(userId, referenceTime),
   ]);
 
   const lastClosed = lastClosedRows[0];
@@ -335,6 +353,7 @@ export async function getWageContext(): Promise<WageContext> {
     thisWeekThresholdHours: weeklyOvertimeThresholdHours(daysWorkedThisWeek, config),
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
+    priorTodayPaidSeconds: todaySeconds,
     canUndoCheckout: Boolean(
       lastClosed?.check_out_at && Date.now() - new Date(lastClosed.check_out_at).getTime() < UNDO_CHECKOUT_WINDOW_MS
     ),
@@ -560,4 +579,75 @@ export async function getWeekHours(referenceDate: Date = new Date()): Promise<We
   });
 
   return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days, totalHours: days.reduce((sum, d) => sum + d.hours, 0) };
+}
+
+// ─────────────────────────────────────────────────────────────
+// TIDLIGERE TIMER (opsamling fra før du skiftede til denne app)
+// ─────────────────────────────────────────────────────────────
+
+export type HistoricalWeek = {
+  id: number;
+  weekStart: string;
+  hours: number;
+  grossAmount: number;
+  netAmount: number;
+  inPeriod: boolean;
+};
+
+// Allerede-arbejdede, fuldt afsluttede uger logget som ét samlet timetal (uden
+// tjek-ind/ud) — til at bygge bro fra "jeg skiftede app midt i en lønperiode"
+// til nu. Holdt adskilt (is_manual_entry) så den er synlig/slettelig for sig.
+// Log kun uger der allerede er helt færdige — den igangværende uge skal du
+// tjekke ind/ud til som normalt.
+export async function getHistoricalWeeks(): Promise<HistoricalWeek[]> {
+  const userId = await getUserId();
+  const [rows, config] = await Promise.all([
+    db().sql<SessionRow>`SELECT * FROM work_sessions WHERE user_id = ${userId} AND is_manual_entry = true ORDER BY check_in_at ASC`,
+    getWageSettings(),
+  ]);
+  const { start, end } = getPayPeriodRange(config);
+  return rows.map((r) => ({
+    id: r.id,
+    weekStart: new Date(r.check_in_at).toISOString(),
+    hours: (r.paid_seconds ?? 0) / 3600,
+    grossAmount: r.gross_amount ?? 0,
+    netAmount: r.net_amount ?? 0,
+    inPeriod: new Date(r.check_in_at) >= start && new Date(r.check_in_at) < end,
+  }));
+}
+
+export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<void> {
+  if (!(hours > 0)) throw new Error("Antal timer skal være positivt.");
+  const userId = await getUserId();
+  const { start, end } = getWeekRange(weekOf);
+
+  const existing = await db().sql<{ id: number }>`
+    SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${start} AND check_in_at <= ${end}
+  `;
+  if (existing.length > 0) throw new Error("Der er allerede registreret arbejde i denne uge.");
+
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const [weekSecondsBefore, periodBefore] = await Promise.all([
+    priorWeekElapsedSeconds(userId, start),
+    priorPeriodTotals(userId, start, config),
+  ]);
+  const { paidSeconds, grossAmount } = computeWeekGrossFromHours(hours, weekSecondsBefore, config);
+  const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
+
+  await db().sql`
+    INSERT INTO work_sessions (user_id, check_in_at, check_out_at, paid_seconds, gross_amount, net_amount, is_manual_entry)
+    VALUES (${userId}, ${start}, ${new Date(start.getTime() + paidSeconds * 1000)}, ${Math.round(paidSeconds)}, ${grossAmount}, ${netAmount}, true)
+  `;
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
+}
+
+export async function deleteHistoricalWeek(id: number): Promise<void> {
+  const userId = await getUserId();
+  await db().sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_manual_entry = true`;
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
 }
