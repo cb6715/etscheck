@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Clock, CalendarDays, Settings } from "lucide-react";
 import clsx from "clsx";
@@ -17,8 +18,14 @@ export function NavBar() {
     <header className="sticky top-0 z-40 px-3 pt-3 sm:px-4">
       <div className="glass mx-auto flex w-full max-w-lg items-center justify-between rounded-full px-4 py-2.5">
         <Link href="/" className="flex items-center gap-2 text-base font-extrabold tracking-tight">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] shadow-[0_0_10px_-1px_var(--accent-a40)]" />
-          Vagtløn
+          <Image
+            src="/icon-192.png"
+            alt=""
+            width={24}
+            height={24}
+            className="rounded-[7px] shadow-[0_0_10px_-1px_var(--accent-a40)]"
+          />
+          WageFlow
         </Link>
         <nav className="flex items-center gap-1">
           {LINKS.map((link) => {

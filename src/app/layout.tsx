@@ -7,13 +7,13 @@ import { NavBar } from "@/components/nav-bar";
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Vagtløn",
+  title: "WageFlow",
   description: "Tjek ind, tjek ud, se din løn — med det samme.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Vagtløn",
+    title: "WageFlow",
   },
 };
 

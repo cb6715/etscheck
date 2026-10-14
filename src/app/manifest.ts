@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Vagtløn",
-    short_name: "Vagtløn",
+    name: "WageFlow",
+    short_name: "WageFlow",
     description: "Tjek ind, tjek ud, se din løn — med det samme.",
     start_url: "/",
     display: "standalone",
@@ -11,10 +11,10 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#7c3aed",
     orientation: "portrait",
     icons: [
-      { src: "/icon-192", sizes: "192x192", type: "image/png" },
-      { src: "/icon-192", sizes: "192x192", type: "image/png", purpose: "maskable" },
-      { src: "/icon-512", sizes: "512x512", type: "image/png" },
-      { src: "/icon-512", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }
