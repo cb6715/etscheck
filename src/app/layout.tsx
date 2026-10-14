@@ -9,12 +9,19 @@ const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Vagtløn",
   description: "Tjek ind, tjek ud, se din løn — med det samme.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Vagtløn",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#7c3aed",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
