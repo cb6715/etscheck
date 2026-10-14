@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/current-user";
-import { getWeekRange } from "@/lib/date";
+import { getWeekRange, startOfDay, weekdayShort } from "@/lib/date";
 import { copenhagenDayKey } from "@/lib/timezone";
 import {
   computeIntervalEarnings,
   computeWeekGrossFromHours,
+  computeSickDayEarnings,
   netForIncrement,
   getPayPeriodRange,
   weeklyOvertimeThresholdHours,
@@ -46,25 +47,28 @@ export async function updateWageSettings(input: WageSettingsInput) {
 // is deliberately NOT the sum of `paidSeconds` (which excludes the unpaid
 // break): a 30-min unpaid break still counts towards when you enter
 // overtime, it just isn't paid kr for those 30 minutes. See the comment on
-// computeIntervalEarnings in engine.ts for the full reasoning.
+// computeIntervalEarnings in engine.ts for the full reasoning. Sygedage are
+// excluded — a sick day isn't worked time and doesn't push you towards
+// overtime on the real days you do work that week.
 async function priorWeekElapsedSeconds(userId: string, before: Date) {
   const { start } = getWeekRange(before);
   const sessions = await prisma.workSession.findMany({
-    where: { userId, checkOutAt: { not: null }, checkInAt: { gte: start, lt: before } },
+    where: { userId, checkOutAt: { not: null }, isSickDay: false, checkInAt: { gte: start, lt: before } },
     select: { checkInAt: true, checkOutAt: true },
   });
   return sessions.reduce((sum, s) => sum + (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000, 0);
 }
 
-// Distinct Danish calendar days with at least one session (open or closed)
-// in the ISO week containing `referenceDate` — the basis for pro-rating the
-// overtime threshold on a short work week (see weeklyOvertimeThresholdHours
-// in engine.ts): a week where only 4 days end up having a shift has a
-// 30-timer threshold, not the full 37.
+// Distinct Danish calendar days with at least one real (non-sick) session
+// (open or closed) in the ISO week containing `referenceDate` — the basis
+// for pro-rating the overtime threshold on a short work week (see
+// weeklyOvertimeThresholdHours in engine.ts): a week where only 4 days end
+// up having a shift has a 30-timer threshold, not the full 37. A sygedag
+// doesn't count as a worked day here.
 async function distinctWorkedDaysThisWeek(userId: string, referenceDate: Date): Promise<number> {
   const { start, end } = getWeekRange(referenceDate);
   const sessions = await prisma.workSession.findMany({
-    where: { userId, checkInAt: { gte: start, lte: end } },
+    where: { userId, isSickDay: false, checkInAt: { gte: start, lte: end } },
     select: { checkInAt: true },
   });
   return new Set(sessions.map((s) => copenhagenDayKey(s.checkInAt))).size;
@@ -82,7 +86,13 @@ async function distinctWorkedDaysThisWeek(userId: string, referenceDate: Date): 
 async function recomputePeriodSessions(userId: string, config: WageConfig): Promise<void> {
   const { start, end } = getPayPeriodRange(config);
   const sessions = await prisma.workSession.findMany({
-    where: { userId, checkOutAt: { not: null }, isManualEntry: false, checkInAt: { gte: start, lt: end } },
+    where: {
+      userId,
+      checkOutAt: { not: null },
+      isManualEntry: false,
+      isSickDay: false,
+      checkInAt: { gte: start, lt: end },
+    },
     orderBy: { checkInAt: "asc" },
   });
   if (sessions.length === 0) return;
@@ -480,4 +490,133 @@ export async function getWeekHours(referenceDate: Date = new Date()): Promise<We
     days,
     totalHours: days.reduce((sum, d) => sum + d.hours, 0),
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYGEDAGE
+// ─────────────────────────────────────────────────────────────
+
+export type DayAttendance = {
+  dateKey: string;
+  weekday: number;
+  label: string;
+  isWeekend: boolean;
+  status: "worked" | "sick" | "manual" | "open" | "none";
+  sessionId: string | null;
+};
+
+export type WeekAttendance = {
+  weekStart: string;
+  weekEnd: string;
+  days: DayAttendance[];
+};
+
+// One row per calendar day in the ISO week containing `referenceDate`,
+// showing whether that day already has a registration — this is what lets
+// "mark the day I didn't check in as sick" be a single click rather than
+// typing a date: the UI just shows which days have no registration yet.
+export async function getWeekAttendance(referenceDate: Date = new Date()): Promise<WeekAttendance> {
+  const userId = await getCurrentUserId();
+  const { start, end } = getWeekRange(referenceDate);
+  const sessions = await prisma.workSession.findMany({
+    where: { userId, checkInAt: { gte: start, lte: end } },
+    orderBy: { checkInAt: "asc" },
+  });
+
+  const byDay = new Map<string, (typeof sessions)[number]>();
+  for (const s of sessions) {
+    const key = copenhagenDayKey(s.checkInAt);
+    if (!byDay.has(key)) byDay.set(key, s);
+  }
+
+  const days: DayAttendance[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = copenhagenDayKey(d);
+    const session = byDay.get(key);
+    const weekday = d.getDay();
+    let status: DayAttendance["status"] = "none";
+    if (session) {
+      status = session.isSickDay ? "sick" : session.isManualEntry ? "manual" : session.checkOutAt ? "worked" : "open";
+    }
+    days.push({
+      dateKey: key,
+      weekday,
+      label: weekdayShort(weekday),
+      isWeekend: weekday === 0 || weekday === 6,
+      status,
+      sessionId: session?.id ?? null,
+    });
+  }
+
+  return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days };
+}
+
+// Registers a sygedag for `dateKey` (YYYY-MM-DD), paid at the configured
+// flat sickPayHourlyRate for [startTime, endTime) minus the unpaid break —
+// no overtime/night-tillæg, and excluded from the weekly overtime-threshold
+// day-count (see priorWeekElapsedSeconds/distinctWorkedDaysThisWeek above).
+export async function addSickDay(dateKey: string, startTime: string, endTime: string): Promise<void> {
+  const userId = await getCurrentUserId();
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const checkInAt = new Date(y, m - 1, d, sh, sm);
+  const checkOutAt = new Date(y, m - 1, d, eh, em);
+  if (!(checkOutAt > checkInAt)) throw new Error("Sluttid skal være efter starttid.");
+
+  const dayStart = startOfDay(checkInAt);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setHours(23, 59, 59, 999);
+  const existing = await prisma.workSession.findFirst({
+    where: { userId, checkInAt: { gte: dayStart, lte: dayEnd } },
+  });
+  if (existing) throw new Error("Der er allerede en registrering denne dag — slet den først, hvis den er forkert.");
+
+  const config = await getOrCreateWageSettings(userId);
+  const { paidSeconds, grossAmount } = computeSickDayEarnings(checkInAt, checkOutAt, config.sickPayHourlyRate, config);
+  const periodBefore = await priorPeriodTotals(userId, checkInAt, config);
+  const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
+
+  await prisma.workSession.create({
+    data: { userId, checkInAt, checkOutAt, paidSeconds, grossAmount, netAmount, isSickDay: true },
+  });
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
+}
+
+export type SickDayEntry = {
+  id: string;
+  checkInAt: string;
+  checkOutAt: string;
+  hours: number;
+  grossAmount: number;
+  netAmount: number;
+};
+
+export async function getSickDays(): Promise<SickDayEntry[]> {
+  const userId = await getCurrentUserId();
+  const rows = await prisma.workSession.findMany({
+    where: { userId, isSickDay: true },
+    orderBy: { checkInAt: "desc" },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    checkInAt: r.checkInAt.toISOString(),
+    checkOutAt: r.checkOutAt!.toISOString(),
+    hours: (r.paidSeconds ?? 0) / 3600,
+    grossAmount: r.grossAmount ?? 0,
+    netAmount: r.netAmount ?? 0,
+  }));
+}
+
+export async function deleteSickDay(id: string): Promise<void> {
+  const userId = await getCurrentUserId();
+  await prisma.workSession.deleteMany({ where: { id, userId, isSickDay: true } });
+  const config = await getOrCreateWageSettings(userId);
+  await rebalancePeriodNetAmounts(userId, config);
+  revalidatePath("/indstillinger");
+  revalidatePath("/");
 }

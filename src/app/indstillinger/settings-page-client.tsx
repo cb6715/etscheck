@@ -7,10 +7,11 @@ import { createCategory, deleteCategory } from "@/lib/actions/misc";
 import { toggleTemplateActive, deleteTemplate } from "@/lib/actions/tasks";
 import { WageSettingsForm } from "@/components/settings/wage-settings-form";
 import { HistoricalWeeksForm } from "@/components/settings/historical-weeks-form";
+import { SickDaysForm } from "@/components/settings/sick-days-form";
 import { RECURRENCE_LABELS } from "@/lib/recurrence";
 import { weekdayShort } from "@/lib/date";
 import type { WageConfig } from "@/lib/wage/engine";
-import type { HistoricalWeek } from "@/lib/actions/worksessions";
+import type { HistoricalWeek, WeekAttendance, SickDayEntry } from "@/lib/actions/worksessions";
 import type { Prisma } from "@prisma/client";
 
 type Category = Prisma.CategoryGetPayload<object>;
@@ -26,11 +27,15 @@ export function SettingsPageClient({
   templates,
   wageSettings,
   historicalWeeks,
+  weekAttendance,
+  sickDays,
 }: {
   categories: Category[];
   templates: TemplateWithRelations[];
   wageSettings: WageConfig;
   historicalWeeks: HistoricalWeek[];
+  weekAttendance: WeekAttendance;
+  sickDays: SickDayEntry[];
 }) {
   const [, startTransition] = useTransition();
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -141,6 +146,9 @@ export function SettingsPageClient({
         <WageSettingsForm settings={wageSettings} />
         <div className="mt-3">
           <HistoricalWeeksForm weeks={historicalWeeks} />
+        </div>
+        <div className="mt-3">
+          <SickDaysForm initialAttendance={weekAttendance} initialSickDays={sickDays} />
         </div>
       </section>
 

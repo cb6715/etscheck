@@ -35,6 +35,11 @@ export type WageConfig = {
    * run 1st-to-last). Updated manually in settings when a new period starts. */
   payPeriodStart: Date;
   payPeriodEnd: Date;
+  /** Flat kr/time paid for a registered sygedag — no overtime or night
+   * tillæg, and the hours don't count as "worked" for the overtime
+   * threshold, but they still count toward the period's gross/ATP like
+   * any other paid hours. */
+  sickPayHourlyRate: number;
 };
 
 export const DEFAULT_WAGE_CONFIG: WageConfig = {
@@ -53,6 +58,7 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   advanceAmount: 0,
   payPeriodStart: new Date(2026, 7, 24),
   payPeriodEnd: new Date(2026, 8, 20),
+  sickPayHourlyRate: 132,
 };
 
 function atMinuteOfDay(day: Date, minutes: number): Date {
@@ -127,6 +133,32 @@ export type IntervalEarnings = {
   /** Gross kr earned in [start, end), given what came before it this week. */
   grossAmount: number;
 };
+
+/**
+ * Gross pay for a registered sygedag spanning [start, end) (the scheduled
+ * shift the person would otherwise have worked) — a flat `sickHourlyRate`
+ * per hour, minus the configured unpaid break if it falls inside the span.
+ * Deliberately has no overtime or night-tillæg concept: a sick day is paid
+ * at a single flat rate regardless of which hours it covers.
+ */
+export function computeSickDayEarnings(
+  start: Date,
+  end: Date,
+  sickHourlyRate: number,
+  config: Pick<WageConfig, "breakStartMinutes" | "breakEndMinutes">
+): IntervalEarnings {
+  if (end <= start) return { paidSeconds: 0, grossAmount: 0 };
+
+  const breakStart = atMinuteOfDay(start, config.breakStartMinutes);
+  const breakEnd = atMinuteOfDay(start, config.breakEndMinutes);
+  const overlapStart = new Date(Math.max(start.getTime(), breakStart.getTime()));
+  const overlapEnd = new Date(Math.min(end.getTime(), breakEnd.getTime()));
+  const breakSeconds = overlapEnd > overlapStart ? (overlapEnd.getTime() - overlapStart.getTime()) / 1000 : 0;
+
+  const paidSeconds = (end.getTime() - start.getTime()) / 1000 - breakSeconds;
+  const grossAmount = (paidSeconds / 3600) * sickHourlyRate;
+  return { paidSeconds, grossAmount };
+}
 
 /**
  * The 37-timers overtime threshold is pro-rated for a work week shorter

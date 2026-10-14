@@ -449,6 +449,12 @@ model WageSettings {
   // Nulstilles manuelt her når en ny periode starter, ligesom periodedatoerne.
   advanceAmount Float @default(0)
 
+  // Fast kr/time for sygedage — ingen overtids- eller nattillæg, og tæller
+  // ikke med i ugens arbejdsdage/arbejdstid ift. overarbejdsgrænsen (en
+  // sygedag er ikke en arbejdsdag). Tæller derimod med i periodens
+  // brutto/timer ift. ATP og skattefradrag, ligesom almindelig løn.
+  sickPayHourlyRate Float @default(132)
+
   // Nuværende lønperiode — skattefradraget spores på tværs af denne periode,
   // ikke kalendermåneden (lønperioder følger ikke nødvendigvis 1.-sidste).
   // Opdateres manuelt her i indstillinger når en ny periode starter.
@@ -468,6 +474,10 @@ model WorkSession {
   // true for en uge indtastet bagudrettet (kun antal timer, ingen tjek-ind/ud) —
   // fx til at bygge bro over perioden før tjek-ind/ud-funktionen fandtes.
   isManualEntry Boolean   @default(false)
+  // true for en registreret sygedag — betales med WageSettings.sickPayHourlyRate
+  // (fast sats, ingen overtid/nattillæg) og tæller ikke som en arbejdsdag i
+  // ugens overarbejdsgrænse, men tæller med i periodens brutto/timer.
+  isSickDay     Boolean   @default(false)
   createdAt     DateTime  @default(now())
 
   userId String
