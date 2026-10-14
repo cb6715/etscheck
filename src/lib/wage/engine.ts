@@ -129,17 +129,40 @@ export type IntervalEarnings = {
 };
 
 /**
+ * The 37-timers overtime threshold is pro-rated for a work week shorter
+ * than 5 days: the configured threshold assumes a 5-day week, i.e.
+ * `overtimeThresholdHours / 5` "normal" hours per worked day. A week where
+ * only 4 distinct calendar days end up having a shift therefore has a
+ * threshold of round(37/5 × 4) = 30 timer, not the full 37 — a 5th day
+ * worked later in that same week still only brings it back up to the full
+ * 37, it never grows past that. `workedDaysThisWeek` should count distinct
+ * calendar days with at least one shift so far this ISO week, including
+ * today.
+ */
+export function weeklyOvertimeThresholdHours(
+  workedDaysThisWeek: number,
+  config: Pick<WageConfig, "overtimeThresholdHours">
+): number {
+  if (workedDaysThisWeek >= 5) return config.overtimeThresholdHours;
+  const perDay = config.overtimeThresholdHours / 5;
+  return Math.round(perDay * Math.max(1, workedDaysThisWeek));
+}
+
+/**
  * Gross pay for the interval [start, end), given how many seconds of
  * ELAPSED shift time (not paid time — see below) already happened earlier
- * this week, so the 37-timers-overtime threshold can be crossed
- * mid-interval. Handles a chunk straddling the threshold by splitting it
- * into a normal-rate part and an overtime-rate part.
+ * this week, so the overtime threshold can be crossed mid-interval. Handles
+ * a chunk straddling the threshold by splitting it into a normal-rate part
+ * and an overtime-rate part. `thresholdHours` is the ALREADY pro-rated
+ * weekly threshold for this specific week (see weeklyOvertimeThresholdHours
+ * above) — this function itself has no opinion on day-count pro-rating, it
+ * just applies whatever threshold it's given.
  *
- * The 37-timers threshold is measured against ELAPSED clock time (the full
- * shift span, including the unpaid break), not against paid seconds. An
- * unpaid break doesn't stop your clock towards overtime — you're still
- * "on the clock" time-wise for that half hour, you just don't get paid kr
- * for it. Concretely: the break segment below still contributes 0 kr and 0
+ * The threshold is measured against ELAPSED clock time (the full shift
+ * span, including the unpaid break), not against paid seconds. An unpaid
+ * break doesn't stop your clock towards overtime — you're still "on the
+ * clock" time-wise for that half hour, you just don't get paid kr for it.
+ * Concretely: the break segment below still contributes 0 kr and 0
  * paidSeconds, but its duration still advances `cumulativeElapsedSeconds`,
  * so a shift with a 30-min unpaid break reaches its first overtime second
  * exactly 30 minutes later in the clock than it otherwise would — not 30
@@ -150,12 +173,13 @@ export function computeIntervalEarnings(
   start: Date,
   end: Date,
   priorWeekElapsedSeconds: number,
+  thresholdHours: number,
   config: WageConfig
 ): IntervalEarnings {
   if (end <= start) return { paidSeconds: 0, grossAmount: 0 };
 
   const boundaries = collectBoundaries(start, end, config);
-  const thresholdSeconds = config.overtimeThresholdHours * 3600;
+  const thresholdSeconds = thresholdHours * 3600;
 
   let cumulativeElapsedSeconds = priorWeekElapsedSeconds;
   let paidSeconds = 0;

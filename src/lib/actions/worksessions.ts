@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/current-user";
 import { getWeekRange } from "@/lib/date";
+import { copenhagenDayKey } from "@/lib/timezone";
 import {
   computeIntervalEarnings,
   computeWeekGrossFromHours,
   netForIncrement,
   getPayPeriodRange,
+  weeklyOvertimeThresholdHours,
   DEFAULT_WAGE_CONFIG,
   type WageConfig,
 } from "@/lib/wage/engine";
@@ -54,26 +56,76 @@ async function priorWeekElapsedSeconds(userId: string, before: Date) {
   return sessions.reduce((sum, s) => sum + (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000, 0);
 }
 
-// Re-derives paidSeconds/grossAmount for this ISO week's already-closed,
-// real (non-manual) sessions using the CURRENT engine rules, in
-// chronological order — so a fix to how the overtime threshold is measured
-// (e.g. the elapsed-vs-paid break fix above) self-heals already-recorded
-// shifts the next time the app is opened, without a manual migration step.
-// Safe to call repeatedly: a session already matching the current rules is
-// left untouched.
-async function recomputeWeekSessions(userId: string, referenceDate: Date, config: WageConfig): Promise<void> {
-  const { start } = getWeekRange(referenceDate);
+// Distinct Danish calendar days with at least one session (open or closed)
+// in the ISO week containing `referenceDate` — the basis for pro-rating the
+// overtime threshold on a short work week (see weeklyOvertimeThresholdHours
+// in engine.ts): a week where only 4 days end up having a shift has a
+// 30-timer threshold, not the full 37.
+async function distinctWorkedDaysThisWeek(userId: string, referenceDate: Date): Promise<number> {
+  const { start, end } = getWeekRange(referenceDate);
   const sessions = await prisma.workSession.findMany({
-    where: { userId, checkOutAt: { not: null }, isManualEntry: false, checkInAt: { gte: start } },
+    where: { userId, checkInAt: { gte: start, lte: end } },
+    select: { checkInAt: true },
+  });
+  return new Set(sessions.map((s) => copenhagenDayKey(s.checkInAt))).size;
+}
+
+// Re-derives paidSeconds/grossAmount for every already-closed, real
+// (non-manual) session in the current PAY PERIOD using the CURRENT engine
+// rules, week by week in chronological order — so a fix to how the
+// overtime threshold is measured (the elapsed-vs-paid break fix, or the
+// short-week pro-rating) self-heals already-recorded shifts from this week
+// AND earlier weeks in the period the next time the app is opened, without
+// a manual migration step. Safe to call repeatedly: a session already
+// matching the current rules is left untouched. Scoped to one pay period
+// (a handful of sessions), never the whole table.
+async function recomputePeriodSessions(userId: string, config: WageConfig): Promise<void> {
+  const { start, end } = getPayPeriodRange(config);
+  const sessions = await prisma.workSession.findMany({
+    where: { userId, checkOutAt: { not: null }, isManualEntry: false, checkInAt: { gte: start, lt: end } },
     orderBy: { checkInAt: "asc" },
   });
+  if (sessions.length === 0) return;
 
-  let elapsedSoFar = 0;
+  // Group by the ISO week each session's checkInAt falls in, so each
+  // week's day-count pro-rating is self-contained.
+  const weeks = new Map<string, typeof sessions>();
   for (const s of sessions) {
-    const { paidSeconds, grossAmount } = computeIntervalEarnings(s.checkInAt, s.checkOutAt!, elapsedSoFar, config);
-    elapsedSoFar += (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000;
-    if (paidSeconds !== s.paidSeconds || Math.abs(grossAmount - (s.grossAmount ?? 0)) > 0.001) {
-      await prisma.workSession.update({ where: { id: s.id }, data: { paidSeconds, grossAmount } });
+    const key = getWeekRange(s.checkInAt).start.toISOString();
+    const list = weeks.get(key);
+    if (list) list.push(s);
+    else weeks.set(key, [s]);
+  }
+  const currentWeekKey = getWeekRange(new Date()).start.toISOString();
+
+  for (const [weekKey, weekSessions] of weeks) {
+    // A week that has already fully ended has a KNOWN final day count — a
+    // genuinely 4-day week gets the 30-timer threshold from its very first
+    // session onward, not ratcheted up day by day. The still-ongoing
+    // current week can only go by how many days have been worked so far
+    // (the future isn't known yet); it self-corrects next time this runs,
+    // once that week, too, has ended.
+    const isCurrentWeek = weekKey === currentWeekKey;
+    const finalDaysThisWeek = new Set(weekSessions.map((s) => copenhagenDayKey(s.checkInAt))).size;
+
+    let elapsedThisWeek = 0;
+    const daysSeenSoFar = new Set<string>();
+    for (const s of weekSessions) {
+      daysSeenSoFar.add(copenhagenDayKey(s.checkInAt));
+      const daysForThreshold = isCurrentWeek ? daysSeenSoFar.size : finalDaysThisWeek;
+      const thresholdHours = weeklyOvertimeThresholdHours(daysForThreshold, config);
+
+      const { paidSeconds, grossAmount } = computeIntervalEarnings(
+        s.checkInAt,
+        s.checkOutAt!,
+        elapsedThisWeek,
+        thresholdHours,
+        config
+      );
+      elapsedThisWeek += (s.checkOutAt!.getTime() - s.checkInAt.getTime()) / 1000;
+      if (paidSeconds !== s.paidSeconds || Math.abs(grossAmount - (s.grossAmount ?? 0)) > 0.001) {
+        await prisma.workSession.update({ where: { id: s.id }, data: { paidSeconds, grossAmount } });
+      }
     }
   }
 }
@@ -134,6 +186,10 @@ export type WageContext = {
   config: WageConfig;
   openSession: { id: string; checkInAt: string } | null;
   priorWeekElapsedSeconds: number;
+  /** Pro-rated overtime threshold (timer) for the ISO week `openSession`
+   * falls in, given how many distinct days have been worked so far —
+   * see weeklyOvertimeThresholdHours in engine.ts. */
+  thisWeekThresholdHours: number;
   priorPeriodGross: number;
   priorPeriodPaidSeconds: number;
   canUndoCheckout: boolean;
@@ -152,16 +208,18 @@ export async function getWageContext(): Promise<WageContext> {
   ]);
 
   const referenceTime = openSession?.checkInAt ?? new Date();
-  await recomputeWeekSessions(userId, referenceTime, config);
-  const [weekSeconds, periodTotals] = await Promise.all([
+  await recomputePeriodSessions(userId, config);
+  const [weekSeconds, periodTotals, daysWorkedThisWeek] = await Promise.all([
     priorWeekElapsedSeconds(userId, referenceTime),
     priorPeriodTotals(userId, referenceTime, config),
+    distinctWorkedDaysThisWeek(userId, referenceTime),
   ]);
 
   return {
     config,
     openSession: openSession ? { id: openSession.id, checkInAt: openSession.checkInAt.toISOString() } : null,
     priorWeekElapsedSeconds: weekSeconds,
+    thisWeekThresholdHours: weeklyOvertimeThresholdHours(daysWorkedThisWeek, config),
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
     canUndoCheckout: Boolean(
@@ -221,13 +279,21 @@ export async function checkOut(): Promise<WageContext> {
 
   if (session) {
     const config = await getOrCreateWageSettings(userId);
-    await recomputeWeekSessions(userId, session.checkInAt, config);
+    await recomputePeriodSessions(userId, config);
     const now = new Date();
-    const [weekSecondsBefore, periodBefore] = await Promise.all([
+    const [weekSecondsBefore, periodBefore, daysWorkedThisWeek] = await Promise.all([
       priorWeekElapsedSeconds(userId, session.checkInAt),
       priorPeriodTotals(userId, session.checkInAt, config),
+      distinctWorkedDaysThisWeek(userId, session.checkInAt),
     ]);
-    const { paidSeconds, grossAmount } = computeIntervalEarnings(session.checkInAt, now, weekSecondsBefore, config);
+    const thresholdHours = weeklyOvertimeThresholdHours(daysWorkedThisWeek, config);
+    const { paidSeconds, grossAmount } = computeIntervalEarnings(
+      session.checkInAt,
+      now,
+      weekSecondsBefore,
+      thresholdHours,
+      config
+    );
     const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
     await prisma.workSession.update({
