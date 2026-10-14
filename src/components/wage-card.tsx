@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   LogIn,
   LogOut,
@@ -16,6 +17,9 @@ import {
   TrendingUp,
   ChevronDown,
   Info,
+  BellRing,
+  CalendarCheck,
+  ArrowRight,
 } from "lucide-react";
 import { Card, Button, Badge } from "@/components/ui/primitives";
 import { TiltWrapper } from "@/components/tilt-wrapper";
@@ -29,6 +33,10 @@ import {
 } from "@/lib/actions";
 import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross } from "@/lib/engine";
 import { zonedParts } from "@/lib/timezone";
+import { useToast } from "@/components/toast-provider";
+import { notificationPermission, requestNotificationPermission } from "@/lib/notify";
+
+const MILESTONE_STEP_KR = 1000;
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
@@ -72,6 +80,7 @@ function BreakdownRow({ label, value, strong, hint }: { label: string; value: st
 }
 
 export function WageCard() {
+  const { notify } = useToast();
   const [context, setContext] = useState<WageContext | null>(null);
   const [now, setNow] = useState<Date | null>(() => new Date());
   const [loadError, setLoadError] = useState(false);
@@ -79,7 +88,17 @@ export function WageCard() {
   const [editingCheckIn, setEditingCheckIn] = useState(false);
   const [checkInTimeInput, setCheckInTimeInput] = useState("");
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<ReturnType<typeof notificationPermission>>(() =>
+    notificationPermission()
+  );
+  const [periodBannerDismissed, setPeriodBannerDismissed] = useState(true);
+  // Read once at mount rather than calling Date.now() during render (which
+  // React's purity rules disallow) — accurate enough for a once-per-period banner.
+  const [mountedAt] = useState(() => Date.now());
   const [pending, startTransition] = useTransition();
+
+  const lastMilestoneRef = useRef<number | null>(null);
+  const wasOvertimeRef = useRef<boolean | null>(null);
 
   function loadContext() {
     getWageContext()
@@ -166,6 +185,104 @@ export function WageCard() {
     return (context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0)) / 3600;
   }, [context, live]);
 
+  // Measured against ELAPSED clock time since check-in (not paid seconds),
+  // same basis computeIntervalEarnings itself splits normal/overtime on —
+  // an unpaid break still counts towards reaching the threshold.
+  const inOvertime = useMemo(() => {
+    if (!context?.openSession || !now) return false;
+    const checkInAt = new Date(context.openSession.checkInAt);
+    const elapsedThisSession = (now.getTime() - checkInAt.getTime()) / 1000;
+    const totalElapsedThisWeek = context.priorWeekElapsedSeconds + elapsedThisSession;
+    return totalElapsedThisWeek > context.thisWeekThresholdHours * 3600;
+  }, [context, now]);
+
+  const periodEndKey = context ? new Date(context.config.payPeriodEnd).toISOString().slice(0, 10) : null;
+  const periodHasEnded = useMemo(() => {
+    if (!context) return false;
+    const end = new Date(context.config.payPeriodEnd);
+    const exclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    return mountedAt >= exclusiveEnd.getTime();
+  }, [context, mountedAt]);
+
+  // Milestone toasts ("du er over 2.000 kr") — fires once per crossed
+  // multiple of MILESTONE_STEP_KR. The first render just records the
+  // current milestone as the baseline so re-opening the app doesn't
+  // re-announce every threshold already passed in an earlier session.
+  useEffect(() => {
+    if (cumulativeGross === null) return;
+    const currentMilestone = Math.floor(cumulativeGross / MILESTONE_STEP_KR);
+    if (lastMilestoneRef.current === null) {
+      lastMilestoneRef.current = currentMilestone;
+      return;
+    }
+    if (currentMilestone > lastMilestoneRef.current) {
+      for (let m = lastMilestoneRef.current + 1; m <= currentMilestone; m++) {
+        notify(
+          `🎉 Du er over ${(m * MILESTONE_STEP_KR).toLocaleString("da-DK")} kr`,
+          `Du har nu optjent ${formatKr(cumulativeGross)} brutto i denne lønperiode.`,
+          "milestone"
+        );
+      }
+      lastMilestoneRef.current = currentMilestone;
+    }
+  }, [cumulativeGross, notify]);
+
+  // Overtime toast — fires once on the false→true transition.
+  useEffect(() => {
+    if (!context) return;
+    if (wasOvertimeRef.current === null) {
+      wasOvertimeRef.current = inOvertime;
+      return;
+    }
+    if (inOvertime && !wasOvertimeRef.current) {
+      const overtimeRate = context.config.hourlyRate * (1 + context.config.overtimeBonusPct);
+      notify(
+        "⏱️ Du er gået i overtid",
+        `Din timeløn er nu ${formatKr(overtimeRate)}/time.`,
+        "overtime"
+      );
+    }
+    wasOvertimeRef.current = inOvertime;
+  }, [inOvertime, context, notify]);
+
+  // Period-ended banner + one-time toast — remembered per period-end date
+  // in localStorage so it doesn't repeat on every reload, but does come
+  // back the next time the configured period actually changes.
+  useEffect(() => {
+    if (!periodHasEnded || !periodEndKey || payout === null) return;
+    const storageKey = `wf_period_ack_${periodEndKey}`;
+    let alreadySeen = false;
+    try {
+      alreadySeen = localStorage.getItem(storageKey) !== null;
+    } catch {
+      // localStorage unavailable (private mode etc.) — just show the banner every time, no notification spam risk since it's a one-shot effect per mount.
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- genuinely syncing with an external system (localStorage) gated on periodEndKey/payout changing, not derivable from props/state alone.
+    setPeriodBannerDismissed(alreadySeen);
+    if (!alreadySeen) {
+      notify(
+        "📅 Din lønperiode er slut",
+        `${formatKr(payout)} klar til udbetaling.`,
+        "period"
+      );
+    }
+  }, [periodHasEnded, periodEndKey, payout, notify]);
+
+  function dismissPeriodBanner() {
+    setPeriodBannerDismissed(true);
+    if (periodEndKey) {
+      try {
+        localStorage.setItem(`wf_period_ack_${periodEndKey}`, "1");
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function enableNotifications() {
+    requestNotificationPermission().then(setNotifPermission);
+  }
+
   function handleCheckIn() {
     setActionError("");
     startTransition(async () => {
@@ -242,7 +359,47 @@ export function WageCard() {
   const checkedIn = Boolean(context.openSession && live);
 
   return (
-    <TiltWrapper className="animate-fade-up">
+    <div className="space-y-3">
+      {periodHasEnded && !periodBannerDismissed && (
+        <Card className="animate-fade-up flex items-start gap-3 p-4">
+          <span className="glass-strong flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--accent)]">
+            <CalendarCheck size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-extrabold">Din lønperiode er slut</p>
+            <p className="mt-0.5 text-sm text-[var(--muted)]">
+              {formatKr(payout)} klar til udbetaling. Opdatér lønperioden i{" "}
+              <Link href="/indstillinger" className="font-bold text-[var(--accent)] underline underline-offset-2">
+                Indstillinger
+              </Link>
+              , når den næste starter.
+            </p>
+          </div>
+          <button
+            onClick={dismissPeriodBanner}
+            className="shrink-0 rounded-full p-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
+            aria-label="Luk"
+          >
+            <X size={15} />
+          </button>
+        </Card>
+      )}
+
+      {notifPermission === "default" && (
+        <button
+          onClick={enableNotifications}
+          className="glass flex w-full items-center justify-between gap-2 rounded-2xl px-4 py-2.5 text-left text-xs font-bold text-[var(--muted)] transition hover:text-[var(--foreground)]"
+        >
+          <span className="flex items-center gap-1.5">
+            <BellRing size={14} className="text-[var(--accent)]" /> Få besked om løn-milepæle og overtid
+          </span>
+          <span className="flex items-center gap-1 text-[var(--accent)]">
+            Aktivér <ArrowRight size={12} />
+          </span>
+        </button>
+      )}
+
+      <TiltWrapper className="animate-fade-up">
       <Card className="overflow-hidden p-0" elevated>
         <button
           type="button"
@@ -379,6 +536,7 @@ export function WageCard() {
           )}
         </div>
       </Card>
-    </TiltWrapper>
+      </TiltWrapper>
+    </div>
   );
 }

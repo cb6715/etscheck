@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { NavBar } from "@/components/nav-bar";
+import { ToastProvider } from "@/components/toast-provider";
 import { getSessionUserId } from "@/lib/session";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -46,10 +47,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             style={{ bottom: "-15%", left: "10%", width: "50vw", height: "50vw", background: "var(--accent-3)" }}
           />
         </div>
-        <NavBar loggedIn={loggedIn} />
-        <main className="mx-auto w-full max-w-lg min-w-0 flex-1 px-4 pt-5 sm:px-6 [padding-bottom:max(6rem,calc(2rem+env(safe-area-inset-bottom)))]">
-          {children}
-        </main>
+        <ToastProvider>
+          <NavBar loggedIn={loggedIn} />
+          <main className="mx-auto w-full max-w-lg min-w-0 flex-1 px-4 pt-5 sm:px-6 [padding-bottom:max(6rem,calc(2rem+env(safe-area-inset-bottom)))]">
+            {children}
+          </main>
+        </ToastProvider>
       </body>
     </html>
   );
