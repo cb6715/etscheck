@@ -1,13 +1,20 @@
 import { type ReactNode } from "react";
 import clsx from "clsx";
 
-export function Card({ children, className }: { children?: ReactNode; className?: string }) {
+export function Card({
+  children,
+  className,
+  elevated = false,
+}: {
+  children?: ReactNode;
+  className?: string;
+  /** Deeper shadow for the one "hero" card on a page, instead of every card. */
+  elevated?: boolean;
+}) {
   return (
     <div
-      className={clsx(
-        "rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-sm shadow-black/5",
-        className
-      )}
+      className={clsx("rounded-3xl border border-[var(--border)] bg-[var(--surface)]", className)}
+      style={{ boxShadow: elevated ? "var(--shadow-ambient-lg)" : "var(--shadow-ambient)" }}
     >
       {children}
     </div>
@@ -34,7 +41,7 @@ export function Button({
   fullWidth?: boolean;
 }) {
   const variants = {
-    primary: "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--accent-foreground)] hover:brightness-105",
+    primary: "bg-gradient-to-b from-[var(--accent-2)] to-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-105",
     secondary: "bg-[var(--surface-2)] text-[var(--foreground)] hover:brightness-95",
     ghost: "bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-2)]",
     danger: "bg-[var(--danger)] text-white hover:brightness-110",
@@ -46,8 +53,9 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        "font-bold transition active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none select-none",
+        "btn-3d font-bold disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none select-none",
         variants[variant],
+        variant === "ghost" && "!shadow-none",
         sizes[size],
         fullWidth && "w-full",
         className

@@ -22,6 +22,11 @@
   --accent-a10: rgba(124, 58, 237, 0.1);
   --accent-a20: rgba(124, 58, 237, 0.2);
   --accent-a40: rgba(124, 58, 237, 0.4);
+  --shadow-ambient: 0 1px 2px rgba(23, 12, 48, 0.04), 0 12px 28px -8px rgba(76, 29, 149, 0.18);
+  --shadow-ambient-lg: 0 2px 4px rgba(23, 12, 48, 0.06), 0 24px 48px -12px rgba(76, 29, 149, 0.28);
+  --shadow-press: 0 1px 2px rgba(23, 12, 48, 0.08);
+  --edge-light: rgba(255, 255, 255, 0.5);
+  --edge-dark: rgba(23, 12, 48, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -47,6 +52,11 @@
     --accent-a10: rgba(167, 139, 250, 0.12);
     --accent-a20: rgba(167, 139, 250, 0.22);
     --accent-a40: rgba(167, 139, 250, 0.4);
+    --shadow-ambient: 0 1px 1px rgba(0, 0, 0, 0.3), 0 14px 32px -10px rgba(0, 0, 0, 0.55);
+    --shadow-ambient-lg: 0 2px 2px rgba(0, 0, 0, 0.35), 0 28px 56px -14px rgba(0, 0, 0, 0.65);
+    --shadow-press: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --edge-light: rgba(255, 255, 255, 0.08);
+    --edge-dark: rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -75,10 +85,57 @@ body {
 }
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .animate-fade-up {
-  animation: fade-up 0.35s ease-out;
+  animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes float-blob {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-6%, 8%, 0) scale(1.08); }
+}
+
+.float-blob {
+  animation: float-blob 9s ease-in-out infinite;
+}
+
+.float-blob-slow {
+  animation: float-blob 13s ease-in-out infinite reverse;
+}
+
+/* A 3D tilt card: JS sets --tilt-x/--tilt-y/--tilt-s (rotation + scale) on
+   pointer move, this applies them with perspective so the card genuinely
+   reads as a physical slab catching light, not just a flat image. */
+.tilt-card {
+  transform-style: preserve-3d;
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) scale3d(var(--tilt-s, 1), var(--tilt-s, 1), 1);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.tilt-card.tilt-active {
+  transition: transform 0.08s linear;
+}
+
+.tilt-sheen {
+  background: radial-gradient(circle at var(--sheen-x, 50%) var(--sheen-y, 0%), var(--edge-light), transparent 55%);
+  mix-blend-mode: overlay;
+  opacity: 0.7;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* Raised, physical button: a crisp bottom edge that compresses on press. */
+.btn-3d {
+  box-shadow: 0 3px 0 var(--edge-dark), var(--shadow-press);
+  transform: translateY(0);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.btn-3d:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--edge-dark);
 }

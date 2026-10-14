@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { LogIn, LogOut, Wallet, AlertTriangle, Check, X, Undo2, Gift, Clock, CalendarRange } from "lucide-react";
 import { Card, Button, Badge } from "@/components/ui/primitives";
+import { TiltWrapper } from "@/components/tilt-wrapper";
 import {
   checkIn,
   checkOut,
@@ -186,10 +187,11 @@ export function WageCard() {
   const checkedIn = Boolean(context.openSession && live);
 
   return (
-    <Card className="animate-fade-up overflow-hidden p-0">
+    <TiltWrapper className="animate-fade-up">
+      <Card className="overflow-hidden p-0" elevated>
       <div className="relative overflow-hidden bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] px-6 py-7 text-[var(--accent-foreground)]">
-        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
-        <div className="absolute -bottom-12 -left-8 h-32 w-32 rounded-full bg-white/10" />
+        <div className="float-blob absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-sm" />
+        <div className="float-blob-slow absolute -bottom-12 -left-8 h-32 w-32 rounded-full bg-white/10 blur-sm" />
         <div className="relative flex items-center justify-between">
           <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-80">
             <Wallet size={14} /> Netto denne periode
@@ -278,6 +280,7 @@ export function WageCard() {
           </div>
         )}
       </div>
-    </Card>
+      </Card>
+    </TiltWrapper>
   );
 }
