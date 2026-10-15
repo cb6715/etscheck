@@ -9,7 +9,7 @@
 // timezone.ts so the result is correct regardless of server TZ. Everything
 // DISPLAYED to a human (formatTime, formatDayHeading, weekdayShort) also
 // goes through zonedParts for the same reason.
-import { zonedParts, copenhagenStartOfDay, addCalendarDays } from "./timezone";
+import { zonedParts, copenhagenStartOfDay, addCalendarDays, copenhagenWeekday } from "./timezone";
 
 const WEEKDAYS_SHORT_DA = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
 const MONTHS_DA = [
@@ -23,14 +23,6 @@ export function startOfDay(date: Date): Date {
 
 export function endOfDay(date: Date): Date {
   return new Date(addCalendarDays(copenhagenStartOfDay(date), 1).getTime() - 1);
-}
-
-/** Day-of-week (0=søndag..6=lørdag) for the Danish calendar day containing
- * `date` — computed from the zoned Y-M-D components (not `Date#getDay`,
- * which like setHours above depends on the runtime's own timezone). */
-function copenhagenWeekday(date: Date): number {
-  const { year, month, day } = zonedParts(date);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 export function formatShortDate(date: Date): string {

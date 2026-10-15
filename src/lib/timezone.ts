@@ -65,3 +65,14 @@ export function copenhagenDayKey(date: Date): string {
   const { year, month, day } = zonedParts(date);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+/** Day-of-week (0=søndag..6=lørdag) for the Danish calendar day containing
+ * `date` — NOT `Date#getDay()`, which reads the day-of-week of the instant
+ * as seen in the executing runtime's OWN timezone. On a UTC server, a
+ * Danish-midnight instant (e.g. Tuesday 00:00 CEST = Monday 22:00 UTC)
+ * still reads as the PREVIOUS day in UTC, so `getDay()` silently returns
+ * the wrong weekday for every such instant — this doesn't. */
+export function copenhagenWeekday(date: Date): number {
+  const { year, month, day } = zonedParts(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}

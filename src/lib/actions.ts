@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getWeekRange, startOfDay, endOfDay } from "@/lib/date";
-import { copenhagenDayKey } from "@/lib/timezone";
+import { copenhagenDayKey, copenhagenWeekday, zonedDateTime } from "@/lib/timezone";
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
@@ -532,7 +532,7 @@ export async function getWeekAttendance(referenceDate: Date = new Date()): Promi
     d.setDate(start.getDate() + i);
     const key = copenhagenDayKey(d);
     const session = byDay.get(key);
-    const weekday = d.getDay();
+    const weekday = copenhagenWeekday(d);
     let status: DayAttendance["status"] = "none";
     if (session) status = session.is_sick_day ? "sick" : session.check_out_at ? "worked" : "open";
     days.push({
@@ -554,8 +554,12 @@ export async function addSickDay(dateKey: string, startTime: string, endTime: st
   const [y, m, d] = dateKey.split("-").map(Number);
   const [sh, sm] = startTime.split(":").map(Number);
   const [eh, em] = endTime.split(":").map(Number);
-  const checkInAt = new Date(y, m - 1, d, sh, sm);
-  const checkOutAt = new Date(y, m - 1, d, eh, em);
+  // zonedDateTime, not `new Date(y, m-1, d, h, m)` — this runs as a server
+  // action, and a plain Date constructor reads h/m in the server runtime's
+  // own timezone (UTC on Netlify), not Danish local, which would store the
+  // sick shift 1-2 hours later than the time actually picked in the UI.
+  const checkInAt = zonedDateTime(y, m, d, sh, sm);
+  const checkOutAt = zonedDateTime(y, m, d, eh, em);
   if (!(checkOutAt > checkInAt)) return fail("Sluttid skal være efter starttid.");
 
   const dayStart = startOfDay(checkInAt);
