@@ -30,13 +30,14 @@ import {
   updateCheckInTime,
   undoLastCheckOut,
   closePayPeriod,
+  savePushSubscription,
   type WageContext,
 } from "@/lib/actions";
 import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross, lastWeekdayOfMonth } from "@/lib/engine";
 import { zonedParts, addCalendarDays } from "@/lib/timezone";
 import { startOfDay, formatDayHeading } from "@/lib/date";
 import { useToast } from "@/components/toast-provider";
-import { notificationPermission, requestNotificationPermission } from "@/lib/notify";
+import { notificationPermission, requestNotificationPermission, subscribeToPush } from "@/lib/notify";
 
 const MILESTONE_STEP_KR = 1000;
 
@@ -120,6 +121,21 @@ export function WageCard() {
   useEffect(() => {
     loadContext();
   }, []);
+
+  // Covers a returning user who granted Notification permission in an
+  // EARLIER session, before Web Push subscriptions existed — the "Aktivér"
+  // button below only shows while permission is still "default", so without
+  // this they'd never see it again and would stay stuck on the old
+  // foreground-only path forever. subscribeToPush() itself no-ops if a
+  // subscription already exists, so this is cheap to just always attempt.
+  useEffect(() => {
+    if (notifPermission !== "granted") return;
+    subscribeToPush()
+      .then((subscription) => {
+        if (subscription) return savePushSubscription(subscription);
+      })
+      .catch((e) => console.error("Push re-subscribe failed:", e));
+  }, [notifPermission]);
 
   useEffect(() => {
     if (!context?.openSession) return;
@@ -302,6 +318,9 @@ export function WageCard() {
   }
 
   function enableNotifications() {
+    // Just updates notifPermission — the effect above picks up the
+    // "granted" transition and handles the actual Web Push subscription,
+    // same code path a returning already-granted user goes through too.
     requestNotificationPermission().then(setNotifPermission);
   }
 

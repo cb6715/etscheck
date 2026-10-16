@@ -8,15 +8,22 @@ import { copenhagenDayKey, copenhagenWeekday, zonedDateTime, addCalendarDays } f
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { sendToSubscription, type PushSubscriptionRow } from "@/lib/push";
 import {
   computeIntervalEarnings,
   computeSickDayEarnings,
   computeWeekGrossFromHours,
   netForIncrement,
+  netForCumulative,
+  expectedPayout,
   getPayPeriodRange,
   weeklyOvertimeThresholdHours,
   type WageConfig,
 } from "@/lib/engine";
+
+function formatKr(n: number): string {
+  return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
+}
 
 // ─────────────────────────────────────────────────────────────
 // ROW MAPPING
@@ -248,8 +255,55 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
   const newEnd = startOfDay(newPeriodEnd);
   if (!(newEnd > newStart)) return fail("Den nye periode skal slutte efter den starter.");
 
+  const finalTotals = await priorPeriodTotals(userId, newStart, config);
+  const finalPayout = expectedPayout(netForCumulative(finalTotals.gross, finalTotals.paidSeconds, config), config);
+
   await updateWageSettings({ payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
+  await sendPushToUser(userId, {
+    title: "📅 Lønperiode lukket",
+    body: `${formatKr(finalPayout)} klar til udbetaling. Ny periode er startet.`,
+    tag: "period",
+  });
+
   return ok({ ...config, payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
+}
+
+// ─────────────────────────────────────────────────────────────
+// PUSH-NOTIFIKATIONER
+// ─────────────────────────────────────────────────────────────
+//
+// The browser Notification API (src/lib/notify.ts) only works while the
+// app is actually running somewhere — close the tab/PWA and it's gone.
+// Reaching the lock screen with the app fully closed requires a real Web
+// Push subscription stored here, delivered by sendPushToUser from a server
+// action that already knows something notification-worthy just happened
+// (checkOut crossing a milestone or into overtime, closePayPeriod).
+
+export async function savePushSubscription(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<ActionResult> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  await db().sql`
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+    VALUES (${userId}, ${subscription.endpoint}, ${subscription.keys.p256dh}, ${subscription.keys.auth})
+    ON CONFLICT (endpoint) DO UPDATE SET user_id = ${userId}, p256dh = ${subscription.keys.p256dh}, auth = ${subscription.keys.auth}
+  `;
+  return ok(undefined);
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  await db().sql`DELETE FROM push_subscriptions WHERE user_id = ${userId} AND endpoint = ${endpoint}`;
+}
+
+async function sendPushToUser(userId: number, payload: { title: string; body: string; tag?: string; url?: string }): Promise<void> {
+  const subs = await db().sql<PushSubscriptionRow>`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`;
+  for (const sub of subs) {
+    const result = await sendToSubscription(sub, payload);
+    if (result === "gone") {
+      await db().sql`DELETE FROM push_subscriptions WHERE endpoint = ${sub.endpoint}`;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -464,6 +518,37 @@ export async function checkOut(): Promise<WageContext> {
       WHERE id = ${session.id}
     `;
     await rebalancePeriodNetAmounts(userId, config);
+
+    // Real Web Push, fired from the server so it reaches the lock screen
+    // even with the app fully closed — the in-app toast/Notification-API
+    // path in wage-card.tsx can't do that, it only runs while a tab/PWA
+    // instance is actually open. Checked here (server-side, at checkout)
+    // rather than client-side live, since that's the only place the app
+    // reliably runs regardless of whether anyone has it open.
+    const MILESTONE_STEP_KR = 1000;
+    const nettoBefore = netForCumulative(periodBefore.gross, periodBefore.paidSeconds, config);
+    const nettoAfter = netForCumulative(periodBefore.gross + grossAmount, periodBefore.paidSeconds + paidSeconds, config);
+    const milestoneBefore = Math.floor(nettoBefore / MILESTONE_STEP_KR);
+    const milestoneAfter = Math.floor(nettoAfter / MILESTONE_STEP_KR);
+    if (milestoneAfter > milestoneBefore) {
+      await sendPushToUser(userId, {
+        title: `🎉 Du er over ${(milestoneAfter * MILESTONE_STEP_KR).toLocaleString("da-DK")} kr netto`,
+        body: `Du har nu optjent ${formatKr(nettoAfter)} netto i denne lønperiode.`,
+        tag: "milestone",
+      });
+    }
+
+    const shiftElapsedSeconds = (checkOutAt.getTime() - checkInAt.getTime()) / 1000;
+    const wasInOvertimeBefore = weekSecondsBefore > thresholdHours * 3600;
+    const isInOvertimeAfter = weekSecondsBefore + shiftElapsedSeconds > thresholdHours * 3600;
+    if (isInOvertimeAfter && !wasInOvertimeBefore) {
+      const overtimeRate = config.hourlyRate * (1 + config.overtimeBonusPct);
+      await sendPushToUser(userId, {
+        title: "⏱️ Du gik i overtid",
+        body: `Din seneste vagt krydsede ugens grænse på ${thresholdHours}t. Timelønnen i overtid er ${formatKr(overtimeRate)}/time.`,
+        tag: "overtime",
+      });
+    }
   }
 
   revalidatePath("/");
