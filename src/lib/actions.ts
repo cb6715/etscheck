@@ -296,6 +296,16 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
   await db().sql`DELETE FROM push_subscriptions WHERE user_id = ${userId} AND endpoint = ${endpoint}`;
 }
 
+// Lets the UI show real state ("1 enhed tilsluttet") instead of a blind
+// "Aktivér" button with no way to tell afterward whether it actually
+// worked — genuinely useful status, not a click-to-test gimmick.
+export async function getPushSubscriptionCount(): Promise<number> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const rows = await db().sql<{ count: string }>`SELECT count(*)::text as count FROM push_subscriptions WHERE user_id = ${userId}`;
+  return Number(rows[0]?.count ?? 0);
+}
+
 async function sendPushToUser(userId: number, payload: { title: string; body: string; tag?: string; url?: string }): Promise<void> {
   const subs = await db().sql<PushSubscriptionRow>`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`;
   for (const sub of subs) {

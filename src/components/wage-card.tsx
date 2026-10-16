@@ -31,6 +31,7 @@ import {
   undoLastCheckOut,
   closePayPeriod,
   savePushSubscription,
+  getPushSubscriptionCount,
   type WageContext,
 } from "@/lib/actions";
 import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross, lastWeekdayOfMonth } from "@/lib/engine";
@@ -101,6 +102,7 @@ export function WageCard() {
   const [closingPeriod, setClosingPeriod] = useState(false);
   const [newPeriodEndInput, setNewPeriodEndInput] = useState("");
   const [closeError, setCloseError] = useState("");
+  const [pushCount, setPushCount] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
   const lastMilestoneRef = useRef<number | null>(null);
@@ -122,6 +124,16 @@ export function WageCard() {
     loadContext();
   }, []);
 
+  function refreshPushCount() {
+    getPushSubscriptionCount()
+      .then(setPushCount)
+      .catch((e) => console.error("Push count fetch failed:", e));
+  }
+
+  useEffect(() => {
+    refreshPushCount();
+  }, []);
+
   // Covers a returning user who granted Notification permission in an
   // EARLIER session, before Web Push subscriptions existed — the "Aktivér"
   // button below only shows while permission is still "default", so without
@@ -134,6 +146,7 @@ export function WageCard() {
       .then((subscription) => {
         if (subscription) return savePushSubscription(subscription);
       })
+      .then(() => refreshPushCount())
       .catch((e) => console.error("Push re-subscribe failed:", e));
   }, [notifPermission]);
 
@@ -490,6 +503,36 @@ export function WageCard() {
             Aktivér <ArrowRight size={12} />
           </span>
         </button>
+      )}
+
+      {/* Real state, not a guess — lets you tell whether a subscription
+          actually exists without needing to wait for a real notification to
+          test it. "granted" + 0 enheder means the browser said yes but no
+          push subscription ever made it to the server (worth reloading the
+          app once, or re-tapping below if it stays at 0). */}
+      {notifPermission === "granted" && (
+        <div className="glass flex w-full items-center justify-between gap-2 rounded-2xl px-4 py-2.5 text-xs font-bold text-[var(--muted)]">
+          <span className="flex items-center gap-1.5">
+            <BellRing size={14} className={pushCount ? "text-[var(--success)]" : "text-[var(--danger)]"} />
+            {pushCount === null
+              ? "Tjekker notifikationsstatus…"
+              : pushCount > 0
+                ? `Notifikationer aktive (${pushCount} ${pushCount === 1 ? "enhed" : "enheder"})`
+                : "Tilladelse givet, men intet abonnement endnu"}
+          </span>
+          {pushCount === 0 && (
+            <button onClick={enableNotifications} className="flex items-center gap-1 text-[var(--accent)]">
+              Prøv igen <ArrowRight size={12} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {notifPermission === "denied" && (
+        <div className="glass flex w-full items-center gap-1.5 rounded-2xl px-4 py-2.5 text-xs font-bold text-[var(--muted)]">
+          <BellRing size={14} className="text-[var(--danger)]" />
+          Notifikationer er blokeret for appen — slå dem til i din telefons indstillinger for at få besked.
+        </div>
       )}
 
       <TiltWrapper className="animate-fade-up">
