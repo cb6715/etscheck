@@ -21,7 +21,7 @@ import {
   CalendarCheck,
   ArrowRight,
 } from "lucide-react";
-import { Card, Button, Badge } from "@/components/ui/primitives";
+import { Card, Button, Badge, inputClass } from "@/components/ui/primitives";
 import { TiltWrapper } from "@/components/tilt-wrapper";
 import {
   checkIn,
@@ -29,10 +29,12 @@ import {
   getWageContext,
   updateCheckInTime,
   undoLastCheckOut,
+  closePayPeriod,
   type WageContext,
 } from "@/lib/actions";
-import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross } from "@/lib/engine";
-import { zonedParts } from "@/lib/timezone";
+import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross, lastWeekdayOfMonth } from "@/lib/engine";
+import { zonedParts, addCalendarDays } from "@/lib/timezone";
+import { startOfDay, formatDayHeading } from "@/lib/date";
 import { useToast } from "@/components/toast-provider";
 import { notificationPermission, requestNotificationPermission } from "@/lib/notify";
 
@@ -95,6 +97,9 @@ export function WageCard() {
   // Read once at mount rather than calling Date.now() during render (which
   // React's purity rules disallow) — accurate enough for a once-per-period banner.
   const [mountedAt] = useState(() => Date.now());
+  const [closingPeriod, setClosingPeriod] = useState(false);
+  const [newPeriodEndInput, setNewPeriodEndInput] = useState("");
+  const [closeError, setCloseError] = useState("");
   const [pending, startTransition] = useTransition();
 
   const lastMilestoneRef = useRef<number | null>(null);
@@ -200,9 +205,24 @@ export function WageCard() {
   const periodHasEnded = useMemo(() => {
     if (!context) return false;
     const end = new Date(context.config.payPeriodEnd);
-    const exclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    // addCalendarDays, not native getFullYear()/getMonth()/getDate() — this
+    // runs in the browser so it was never actually wrong (Danish-local IS
+    // the runtime's own timezone here), but kept consistent with the rest
+    // of the zone-aware codebase now that this file touches period dates
+    // more directly.
+    const exclusiveEnd = addCalendarDays(startOfDay(end), 1);
     return mountedAt >= exclusiveEnd.getTime();
   }, [context, mountedAt]);
+
+  const payoutDate = useMemo(() => {
+    if (!context) return null;
+    return lastWeekdayOfMonth(new Date(context.config.payPeriodEnd));
+  }, [context]);
+
+  const newPeriodStart = useMemo(() => {
+    if (!context) return null;
+    return addCalendarDays(startOfDay(new Date(context.config.payPeriodEnd)), 1);
+  }, [context]);
 
   // Milestone toasts ("du er over 2.000 kr") — tracks NETTO, not brutto,
   // since that's the number people actually care about. Fires once per
@@ -319,6 +339,24 @@ export function WageCard() {
     });
   }
 
+  function confirmClosePeriod() {
+    if (!newPeriodEndInput) return;
+    setCloseError("");
+    const [y, m, d] = newPeriodEndInput.split("-").map(Number);
+    const newEnd = new Date(y, m - 1, d);
+    startTransition(async () => {
+      const result = await closePayPeriod(newEnd);
+      if (!result.ok) {
+        setCloseError(result.error);
+        return;
+      }
+      setClosingPeriod(false);
+      setNewPeriodEndInput("");
+      dismissPeriodBanner();
+      loadContext();
+    });
+  }
+
   function openCheckInEditor() {
     if (context?.openSession) setCheckInTimeInput(timeInputValue(new Date(context.openSession.checkInAt)));
     setActionError("");
@@ -363,27 +401,61 @@ export function WageCard() {
   return (
     <div className="space-y-3">
       {periodHasEnded && !periodBannerDismissed && (
-        <Card className="animate-fade-up flex items-start gap-3 p-4">
-          <span className="glass-strong flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--accent)]">
-            <CalendarCheck size={16} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-extrabold">Din lønperiode er slut</p>
-            <p className="mt-0.5 text-sm text-[var(--muted)]">
-              {formatKr(payout)} klar til udbetaling. Opdatér lønperioden i{" "}
-              <Link href="/indstillinger" className="font-bold text-[var(--accent)] underline underline-offset-2">
-                Indstillinger
-              </Link>
-              , når den næste starter.
-            </p>
+        <Card className="animate-fade-up flex flex-col gap-3 p-4">
+          <div className="flex items-start gap-3">
+            <span className="glass-strong flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--accent)]">
+              <CalendarCheck size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-extrabold">Din lønperiode er slut</p>
+              <p className="mt-0.5 text-sm text-[var(--muted)]">
+                {formatKr(payout)} klar til udbetaling. Luk perioden her, eller ret den manuelt i{" "}
+                <Link href="/indstillinger" className="font-bold text-[var(--accent)] underline underline-offset-2">
+                  Indstillinger
+                </Link>
+                .
+              </p>
+            </div>
+            <button
+              onClick={dismissPeriodBanner}
+              className="shrink-0 rounded-full p-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
+              aria-label="Luk"
+            >
+              <X size={15} />
+            </button>
           </div>
-          <button
-            onClick={dismissPeriodBanner}
-            className="shrink-0 rounded-full p-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
-            aria-label="Luk"
-          >
-            <X size={15} />
-          </button>
+
+          {!closingPeriod ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setClosingPeriod(true)}
+              className="flex w-fit items-center gap-1.5"
+            >
+              <CalendarCheck size={14} /> Luk periode og start ny
+            </Button>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[160px] flex-1">
+                <label className="mb-1 block text-xs font-semibold text-[var(--muted)]">
+                  Ny periode slutter {newPeriodStart && <>(starter {formatDayHeading(newPeriodStart)})</>}
+                </label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={newPeriodEndInput}
+                  onChange={(e) => setNewPeriodEndInput(e.target.value)}
+                />
+              </div>
+              <Button size="sm" onClick={confirmClosePeriod} disabled={pending || !newPeriodEndInput} className="flex shrink-0 items-center gap-1.5">
+                <Check size={14} /> Bekræft
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setClosingPeriod(false)} className="shrink-0">
+                <X size={14} />
+              </Button>
+            </div>
+          )}
+          {closeError && <p className="text-xs font-semibold text-[var(--danger)]">{closeError}</p>}
         </Card>
       )}
 
@@ -438,6 +510,11 @@ export function WageCard() {
             <span className="flex items-center gap-1">
               <Gift size={13} /> {formatKr(totalFeriepenge.netto)} feriepenge
             </span>
+            {payoutDate && (
+              <span className="flex items-center gap-1">
+                <CalendarCheck size={13} /> Udbetales {formatDayHeading(payoutDate)} (skøn)
+              </span>
+            )}
           </div>
         </button>
 

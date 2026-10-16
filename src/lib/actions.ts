@@ -131,7 +131,7 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
       ${user.id}, ${input.hourlyRate}, ${input.overtimeThresholdHours}, ${input.overtimeBonusPct},
       ${input.breakStartMinutes}, ${input.breakEndMinutes}, ${input.monthlyTaxDeduction},
       ${input.amBidragPct}, ${input.taxRatePct}, ${input.atpRatePerHour}, ${input.sickPayHourlyRate},
-      ${input.payPeriodStart}, ${input.payPeriodEnd}
+      ${copenhagenDayKey(input.payPeriodStart)}, ${copenhagenDayKey(input.payPeriodEnd)}
     )
   `;
   await db().sql`INSERT INTO subscriptions (user_id, status) VALUES (${user.id}, 'none')`;
@@ -215,13 +215,41 @@ export async function updateWageSettings(input: WageSettingsInput): Promise<void
   for (const [field, value] of entries) {
     const column = COLUMN_BY_FIELD[field];
     const client = db();
-    await client.sql`UPDATE wage_settings SET ${client.sql.identifier(column)} = ${value}, updated_at = now() WHERE user_id = ${userId}`;
+    // pay_period_start/end are DATE columns (no time component). Passing a
+    // raw Date object lets the driver/Postgres reinterpret its UTC instant
+    // and store the PREVIOUS calendar day — a Danish-midnight instant is
+    // still "yesterday" in UTC — silently shifting the period boundary back
+    // one day on every save. A plain "YYYY-MM-DD" string sidesteps any
+    // timezone reinterpretation entirely.
+    const dbValue = value instanceof Date ? copenhagenDayKey(value) : value;
+    await client.sql`UPDATE wage_settings SET ${client.sql.identifier(column)} = ${dbValue}, updated_at = now() WHERE user_id = ${userId}`;
   }
 
   const config = toConfig(await getOrCreateWageSettingsRow(userId));
   await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
+}
+
+// Advances the pay period in one step: the new period starts the Danish
+// calendar day right after the old one ended (so nothing is skipped or
+// double-counted), runs until the caller-supplied `newPeriodEnd`, and
+// `advanceAmount` resets to 0 — a forskud belongs to the period it was paid
+// against, not the next one. Existing sessions aren't touched: once they
+// fall outside the new [start, end) window, recomputePeriodSessions/
+// rebalancePeriodNetAmounts simply stop recalculating them, so their
+// stored paid_seconds/gross/net amounts stay frozen as of the close.
+export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<WageConfig>> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+
+  const newStart = addCalendarDays(startOfDay(config.payPeriodEnd), 1);
+  const newEnd = startOfDay(newPeriodEnd);
+  if (!(newEnd > newStart)) return fail("Den nye periode skal slutte efter den starter.");
+
+  await updateWageSettings({ payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
+  return ok({ ...config, payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -145,11 +145,14 @@ describe("computeSickDayEarnings", () => {
 });
 
 describe("breakdownForCumulative / netForCumulative — deduction order", () => {
-  it("deducts ATP from gross before AM-bidrag, then skattefradrag, then skat — matches a calibrated payslip", () => {
-    const b = breakdownForCumulative(15372.5, 103 * 3600, config);
-    expect(b.gross).toBeCloseTo(15372.5, 2);
-    expect(b.atp).toBeCloseTo((103 * 0.6822), 2);
-    expect(b.amIncome).toBeCloseTo(15372.5 - b.atp, 2);
+  it("deducts ATP from gross before AM-bidrag, then skattefradrag, then skat — matches a real lønseddel exactly", () => {
+    // Real lønseddel in this app's own account: 153,50 timer, 27.654,00 kr
+    // AM-indkomst (= gross - ATP), 99,00 kr ATP trukket. 27654 + 99 = 27753
+    // gross. Also matches the ≥117-timer A-sats bracket (99 kr) exactly —
+    // a linear kr/time rate would have given ~104,75 kr instead.
+    const b = breakdownForCumulative(27753, 153.5 * 3600, config);
+    expect(b.atp).toBe(99);
+    expect(b.amIncome).toBeCloseTo(27654, 2);
     expect(b.amBidrag).toBeCloseTo(b.amIncome * 0.08, 2);
     expect(b.taxableIncome).toBeCloseTo(Math.max(0, b.amIncome - b.amBidrag - 5100), 2);
     expect(b.tax).toBeCloseTo(b.taxableIncome * 0.44, 2);
@@ -164,6 +167,17 @@ describe("breakdownForCumulative / netForCumulative — deduction order", () => 
 
   it("netForCumulative matches breakdownForCumulative's netto", () => {
     expect(netForCumulative(10000, 60 * 3600, config)).toBeCloseTo(breakdownForCumulative(10000, 60 * 3600, config).netto, 6);
+  });
+
+  it("applies the official Danish ATP A-sats brackets (99/66/33/0 kr), not a linear kr/time rate", () => {
+    // borger.dk "ATP-satser for 2026 i privat virksomhed", månedslønnede A-bidrag.
+    expect(breakdownForCumulative(10000, 10 * 3600, config).atp).toBe(0); // < 39 timer
+    expect(breakdownForCumulative(10000, 39 * 3600, config).atp).toBe(33); // >= 39 timer
+    expect(breakdownForCumulative(10000, 77.9 * 3600, config).atp).toBe(33); // just under 78
+    expect(breakdownForCumulative(10000, 78 * 3600, config).atp).toBe(66); // >= 78 timer
+    expect(breakdownForCumulative(10000, 116.9 * 3600, config).atp).toBe(66); // just under 117
+    expect(breakdownForCumulative(10000, 117 * 3600, config).atp).toBe(99); // >= 117 timer
+    expect(breakdownForCumulative(10000, 200 * 3600, config).atp).toBe(99); // stays capped, not linear
   });
 });
 

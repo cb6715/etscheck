@@ -39,7 +39,6 @@ export function OnboardingWizard() {
   const [monthlyTaxDeduction, setMonthlyTaxDeduction] = useState("5100");
   const [amBidragPct, setAmBidragPct] = useState("8");
   const [taxRatePct, setTaxRatePct] = useState("44");
-  const [atpRatePerHour, setAtpRatePerHour] = useState("0.6822");
   const [sickPayHourlyRate, setSickPayHourlyRate] = useState("132");
   const [payPeriodStart, setPayPeriodStart] = useState(dateToInputValue(firstOfMonth()));
   const [payPeriodEnd, setPayPeriodEnd] = useState(dateToInputValue(lastOfMonth()));
@@ -81,7 +80,7 @@ export function OnboardingWizard() {
         monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
         amBidragPct: (Number(amBidragPct) || 0) / 100,
         taxRatePct: (Number(taxRatePct) || 0) / 100,
-        atpRatePerHour: Number(atpRatePerHour) || 0,
+        atpRatePerHour: 0, // unused by the wage engine — see breakdownForCumulative's ATP bracket table
         sickPayHourlyRate: Number(sickPayHourlyRate) || 0,
         payPeriodStart: new Date(y1, m1 - 1, d1),
         payPeriodEnd: new Date(y2, m2 - 1, d2),
@@ -176,9 +175,6 @@ export function OnboardingWizard() {
             </Field>
             <Field label="Skatteprocent (%)">
               <input className={inputClass} type="number" value={taxRatePct} onChange={(e) => setTaxRatePct(e.target.value)} />
-            </Field>
-            <Field label="ATP-bidrag (kr/time)">
-              <input className={inputClass} type="number" step="0.0001" value={atpRatePerHour} onChange={(e) => setAtpRatePerHour(e.target.value)} />
             </Field>
             <Field label="Lønperiode fra">
               <input className={inputClass} type="date" value={payPeriodStart} onChange={(e) => setPayPeriodStart(e.target.value)} />

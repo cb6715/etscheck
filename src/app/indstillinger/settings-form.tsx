@@ -47,7 +47,6 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
   const [monthlyTaxDeduction, setMonthlyTaxDeduction] = useState(String(settings.monthlyTaxDeduction));
   const [amBidragPct, setAmBidragPct] = useState(String(settings.amBidragPct * 100));
   const [taxRatePct, setTaxRatePct] = useState(String(settings.taxRatePct * 100));
-  const [atpRatePerHour, setAtpRatePerHour] = useState(String(settings.atpRatePerHour));
   const [sickPayHourlyRate, setSickPayHourlyRate] = useState(String(settings.sickPayHourlyRate));
   const [advanceAmount, setAdvanceAmount] = useState(String(settings.advanceAmount));
   const [payPeriodStart, setPayPeriodStart] = useState(dateToInputValue(settings.payPeriodStart));
@@ -75,7 +74,6 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
         monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
         amBidragPct: (Number(amBidragPct) || 0) / 100,
         taxRatePct: (Number(taxRatePct) || 0) / 100,
-        atpRatePerHour: Number(atpRatePerHour) || 0,
         sickPayHourlyRate: Number(sickPayHourlyRate) || 0,
         advanceAmount: Number(advanceAmount) || 0,
         payPeriodStart: inputValueToDate(payPeriodStart),
@@ -140,9 +138,6 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
         <Field label="Skatteprocent (%)">
           <input className={inputClass} type="number" value={taxRatePct} onChange={(e) => setTaxRatePct(e.target.value)} />
         </Field>
-        <Field label="ATP-bidrag (kr/time)">
-          <input className={inputClass} type="number" step="0.0001" value={atpRatePerHour} onChange={(e) => setAtpRatePerHour(e.target.value)} />
-        </Field>
         <Field label="Sygeløn (kr/time)">
           <input className={inputClass} type="number" value={sickPayHourlyRate} onChange={(e) => setSickPayHourlyRate(e.target.value)} />
         </Field>
@@ -163,9 +158,13 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
         arbejdet, og uanset om du arbejder lange dage tidligt i ugen.
       </p>
       <p className="text-xs text-[var(--muted)]">
-        Skattefradraget spores hen over denne periode, ikke kalendermåneden. Opdatér datoerne her, når en ny
-        lønperiode starter.
+        Skattefradraget spores hen over denne periode, ikke kalendermåneden. Du kan rette datoerne her manuelt, eller
+        bruge &quot;Luk periode og start ny&quot; på forsiden, når perioden er slut.
         {payoutDate && <> Udbetales (skøn): sidste hverdag i den måned perioden slutter i — {formatShortDate(payoutDate)}.</>}
+      </p>
+      <p className="text-xs text-[var(--muted)]">
+        ATP-bidrag beregnes nu automatisk efter de officielle trin-satser (99/66/33/0 kr afhængig af timetal i
+        perioden) i stedet for en kr/time-sats — derfor er feltet fjernet herfra.
       </p>
       <Button onClick={save} disabled={pending} className="flex items-center gap-2">
         <Save size={16} /> {pending ? "Gemmer..." : saved ? "Gemt!" : "Gem lønindstillinger"}

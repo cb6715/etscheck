@@ -22,8 +22,10 @@ export type WageConfig = {
   monthlyTaxDeduction: number;
   amBidragPct: number;
   taxRatePct: number;
-  /** ATP-bidrag kr/time — a small mandatory pension contribution deducted
-   * from gross BEFORE AM-bidrag is calculated on what's left. */
+  /** No longer used by `breakdownForCumulative` — real ATP-bidrag isn't
+   * linear per hour, see `atpEmployeeShareForHours` below. Kept in the
+   * config/DB so existing settings rows don't need a migration; the
+   * settings UI no longer exposes it. */
   atpRatePerHour: number;
   /** Salary advance (forskud) already paid out for the current pay period,
    * in kr — subtracted from netto exactly once, by `expectedPayout`, to get
@@ -286,6 +288,28 @@ export function computeWeekGrossFromHours(
 }
 
 /**
+ * The employee's (lønmodtagerens) share of ATP-bidrag, in kr, for a
+ * calendar-month A-ordning member in a private virksomhed — a fixed,
+ * STEPPED amount based on total paid hours in the month, not a linear
+ * kr/time rate. Source: borger.dk's "ATP-satser for 2026 i privat
+ * virksomhed" table. Verified against a real lønseddel in this app's
+ * account: 153,50 timer → 99,00 kr trukket, matching the ≥117-timer
+ * bracket exactly (a linear-rate estimate gave ~105 kr instead).
+ *
+ * This app's "lønperiode" isn't always exactly a calendar month (it's
+ * whatever you set in Indstillinger), so applying the monthly table
+ * straight to however many hours fall in your configured period is itself
+ * an approximation — closer to reality than a linear rate, but still an
+ * estimat, same as the rest of this breakdown.
+ */
+function atpEmployeeShareForHours(hours: number): number {
+  if (hours >= 117) return 99;
+  if (hours >= 78) return 66;
+  if (hours >= 39) return 33;
+  return 0;
+}
+
+/**
  * The full step-by-step breakdown behind a cumulative net figure, in the
  * same order a real lønseddel uses: ATP is deducted from gross first (it
  * scales with hours, not kr) to get AM-indkomst, THEN AM-bidrag is taken
@@ -311,7 +335,7 @@ export type NetBreakdown = {
 };
 
 export function breakdownForCumulative(cumulativeGross: number, cumulativePaidSeconds: number, config: WageConfig): NetBreakdown {
-  const atp = (cumulativePaidSeconds / 3600) * config.atpRatePerHour;
+  const atp = atpEmployeeShareForHours(cumulativePaidSeconds / 3600);
   const amIncome = cumulativeGross - atp;
   const amBidrag = amIncome * config.amBidragPct;
   const taxDeduction = config.monthlyTaxDeduction;
