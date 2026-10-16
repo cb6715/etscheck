@@ -13,7 +13,7 @@ import {
   type SickDayEntry,
   type WeekHoursSummary,
 } from "@/lib/actions";
-import { formatShortDate } from "@/lib/date";
+import { formatShortDate, formatTime } from "@/lib/date";
 import { HistoricalWeekEntry } from "./historical-week-entry";
 
 function formatKr(n: number): string {
@@ -143,6 +143,15 @@ export function UgeClient({
                 </Badge>
               </div>
 
+              {day.checkInAt && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)]">
+                  <Clock size={13} />
+                  {formatTime(new Date(day.checkInAt))}
+                  {" – "}
+                  {day.checkOutAt ? formatTime(new Date(day.checkOutAt)) : "i gang"}
+                </p>
+              )}
+
               {day.status === "none" && (
                 <div className="mt-2">
                   {editingDay === day.dateKey ? (
@@ -180,6 +189,9 @@ export function UgeClient({
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <span className="flex items-center gap-2 text-[var(--muted)]">
                 <Thermometer size={14} /> {formatShortDate(new Date(s.checkInAt))}
+                <span className="font-mono text-xs">
+                  {formatTime(new Date(s.checkInAt))} – {formatTime(new Date(s.checkOutAt))}
+                </span>
               </span>
               <span className="font-bold">
                 {s.hours.toFixed(1)}t · {formatKr(s.grossAmount)} brutto · {formatKr(s.netAmount)} netto

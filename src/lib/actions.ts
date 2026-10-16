@@ -506,6 +506,8 @@ export type DayAttendance = {
   isWeekend: boolean;
   status: "worked" | "sick" | "open" | "none";
   sessionId: number | null;
+  checkInAt: string | null;
+  checkOutAt: string | null;
 };
 
 export type WeekAttendance = { weekStart: string; weekEnd: string; days: DayAttendance[] };
@@ -542,6 +544,8 @@ export async function getWeekAttendance(referenceDate: Date = new Date()): Promi
       isWeekend: weekday === 0 || weekday === 6,
       status,
       sessionId: session?.id ?? null,
+      checkInAt: session ? new Date(session.check_in_at).toISOString() : null,
+      checkOutAt: session?.check_out_at ? new Date(session.check_out_at).toISOString() : null,
     });
   }
 
