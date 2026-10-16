@@ -39,6 +39,7 @@ type WageSettingsRow = {
   advance_amount: number;
   pay_period_start: Date;
   pay_period_end: Date;
+  work_days_per_week: number;
 };
 
 function toConfig(row: WageSettingsRow): WageConfig {
@@ -59,6 +60,7 @@ function toConfig(row: WageSettingsRow): WageConfig {
     advanceAmount: row.advance_amount,
     payPeriodStart: new Date(row.pay_period_start),
     payPeriodEnd: new Date(row.pay_period_end),
+    workDaysPerWeek: row.work_days_per_week,
   };
 }
 
@@ -201,6 +203,7 @@ const COLUMN_BY_FIELD: Record<keyof WageConfig, string> = {
   advanceAmount: "advance_amount",
   payPeriodStart: "pay_period_start",
   payPeriodEnd: "pay_period_end",
+  workDaysPerWeek: "work_days_per_week",
 };
 
 export async function updateWageSettings(input: WageSettingsInput): Promise<void> {
@@ -249,15 +252,6 @@ async function priorTodayPaidSeconds(userId: number, before: Date): Promise<numb
   return rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
 }
 
-async function distinctWorkedDaysThisWeek(userId: number, referenceDate: Date): Promise<number> {
-  const { start, end } = getWeekRange(referenceDate);
-  const rows = await db().sql<{ check_in_at: Date }>`
-    SELECT check_in_at FROM work_sessions
-    WHERE user_id = ${userId} AND is_sick_day = false AND check_in_at >= ${start} AND check_in_at <= ${end}
-  `;
-  return new Set(rows.map((r) => copenhagenDayKey(new Date(r.check_in_at)))).size;
-}
-
 async function recomputePeriodSessions(userId: number, config: WageConfig): Promise<void> {
   const { start, end } = getPayPeriodRange(config);
   const sessions = await db().sql<SessionRow>`
@@ -275,19 +269,15 @@ async function recomputePeriodSessions(userId: number, config: WageConfig): Prom
     if (list) list.push(s);
     else weeks.set(key, [s]);
   }
-  const currentWeekKey = getWeekRange(new Date()).start.toISOString();
 
-  for (const [weekKey, weekSessions] of weeks) {
-    const isCurrentWeek = weekKey === currentWeekKey;
-    const finalDaysThisWeek = new Set(weekSessions.map((s) => copenhagenDayKey(new Date(s.check_in_at)))).size;
+  // Fixed per the configured work_days_per_week, not derived from how many
+  // days happen to have shifts logged — so it's the same for every session
+  // in the week, computed once rather than re-derived per session.
+  const thresholdHours = weeklyOvertimeThresholdHours(config);
 
+  for (const [, weekSessions] of weeks) {
     let elapsedThisWeek = 0;
-    const daysSeenSoFar = new Set<string>();
     for (const s of weekSessions) {
-      daysSeenSoFar.add(copenhagenDayKey(new Date(s.check_in_at)));
-      const daysForThreshold = isCurrentWeek ? daysSeenSoFar.size : finalDaysThisWeek;
-      const thresholdHours = weeklyOvertimeThresholdHours(daysForThreshold, config);
-
       const checkInAt = new Date(s.check_in_at);
       const checkOutAt = new Date(s.check_out_at!);
       const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, checkOutAt, elapsedThisWeek, thresholdHours, config);
@@ -369,10 +359,9 @@ export async function getWageContext(): Promise<WageContext> {
 
   const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
   await recomputePeriodSessions(userId, config);
-  const [weekSeconds, periodTotals, daysWorkedThisWeek, todaySeconds] = await Promise.all([
+  const [weekSeconds, periodTotals, todaySeconds] = await Promise.all([
     priorWeekElapsedSeconds(userId, referenceTime),
     priorPeriodTotals(userId, referenceTime, config),
-    distinctWorkedDaysThisWeek(userId, referenceTime),
     priorTodayPaidSeconds(userId, referenceTime),
   ]);
 
@@ -381,7 +370,7 @@ export async function getWageContext(): Promise<WageContext> {
     config,
     openSession: openSession ? { id: openSession.id, checkInAt: new Date(openSession.check_in_at).toISOString() } : null,
     priorWeekElapsedSeconds: weekSeconds,
-    thisWeekThresholdHours: weeklyOvertimeThresholdHours(daysWorkedThisWeek, config),
+    thisWeekThresholdHours: weeklyOvertimeThresholdHours(config),
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
     priorTodayPaidSeconds: todaySeconds,
@@ -434,12 +423,11 @@ export async function checkOut(): Promise<WageContext> {
     await recomputePeriodSessions(userId, config);
     const checkInAt = new Date(session.check_in_at);
     const checkOutAt = new Date(session.check_out_at);
-    const [weekSecondsBefore, periodBefore, daysWorkedThisWeek] = await Promise.all([
+    const [weekSecondsBefore, periodBefore] = await Promise.all([
       priorWeekElapsedSeconds(userId, checkInAt),
       priorPeriodTotals(userId, checkInAt, config),
-      distinctWorkedDaysThisWeek(userId, checkInAt),
     ]);
-    const thresholdHours = weeklyOvertimeThresholdHours(daysWorkedThisWeek, config);
+    const thresholdHours = weeklyOvertimeThresholdHours(config);
     const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, checkOutAt, weekSecondsBefore, thresholdHours, config);
     const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
@@ -621,7 +609,7 @@ export async function deleteSickDay(id: number): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 
 export type WeekHoursDay = { id: number; checkInAt: string; checkOutAt: string | null; hours: number; isSickDay: boolean; isOpen: boolean };
-export type WeekHoursSummary = { weekStart: string; weekEnd: string; days: WeekHoursDay[]; totalHours: number };
+export type WeekHoursSummary = { weekStart: string; weekEnd: string; days: WeekHoursDay[]; totalHours: number; sickHours: number };
 
 export async function getWeekHours(referenceDate: Date = new Date()): Promise<WeekHoursSummary> {
   const userId = await getUserId();
@@ -646,7 +634,19 @@ export async function getWeekHours(referenceDate: Date = new Date()): Promise<We
     };
   });
 
-  return { weekStart: start.toISOString(), weekEnd: end.toISOString(), days, totalHours: days.reduce((sum, d) => sum + d.hours, 0) };
+  // "Timer denne uge" skal afspejle faktisk ARBEJDET tid, ikke betalte
+  // sygetimer — ellers ser ugen ud til at have flere arbejdstimer, end man
+  // reelt har stået op og arbejdet. Sygetimer holdes adskilt i sickHours,
+  // de vises allerede for sig i sygedage-listen på "Din uge".
+  const worked = days.filter((d) => !d.isSickDay);
+  const sick = days.filter((d) => d.isSickDay);
+  return {
+    weekStart: start.toISOString(),
+    weekEnd: end.toISOString(),
+    days,
+    totalHours: worked.reduce((sum, d) => sum + d.hours, 0),
+    sickHours: sick.reduce((sum, d) => sum + d.hours, 0),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────

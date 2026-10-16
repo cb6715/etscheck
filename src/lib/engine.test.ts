@@ -110,16 +110,26 @@ describe("computeIntervalEarnings — shift crossing midnight", () => {
 });
 
 describe("weeklyOvertimeThresholdHours", () => {
-  it("is the full threshold at 5+ days", () => {
-    expect(weeklyOvertimeThresholdHours(5, config)).toBe(37);
-    expect(weeklyOvertimeThresholdHours(6, config)).toBe(37);
+  it("is the full threshold at a configured 5+ day work week", () => {
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 5 })).toBe(37);
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 6 })).toBe(37);
   });
-  it("pro-rates for a short week, rounded", () => {
-    expect(weeklyOvertimeThresholdHours(4, config)).toBe(Math.round((37 / 5) * 4)); // 30
-    expect(weeklyOvertimeThresholdHours(1, config)).toBe(Math.round(37 / 5)); // 7
+  it("pro-rates for a configured short work week, rounded", () => {
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 4 })).toBe(Math.round((37 / 5) * 4)); // 30
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 1 })).toBe(Math.round(37 / 5)); // 7
   });
-  it("treats 0 days the same as 1 (a day in progress still counts as at least 1)", () => {
-    expect(weeklyOvertimeThresholdHours(0, config)).toBe(weeklyOvertimeThresholdHours(1, config));
+  it("doesn't fluctuate with how many days happen to have been worked so far this week", () => {
+    // Regression: this used to take "days worked so far this week" and
+    // shrink the threshold mid-week for a front-loaded schedule (e.g. three
+    // long days hitting the pro-rated cap well before the real 37t/week).
+    // It's a fixed setting now, so the same config always gives the same
+    // threshold, whatever day of the week it is or how many shifts exist.
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 5 })).toBe(37);
+  });
+  it("treats 0 configured days the same as 1", () => {
+    expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 0 })).toBe(
+      weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 1 })
+    );
   });
 });
 

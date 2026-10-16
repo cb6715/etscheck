@@ -127,6 +127,11 @@ export function UgeClient({
           </span>
           <span className="font-mono text-lg font-extrabold">{formatHours(weekHours.totalHours)}</span>
         </div>
+        {weekHours.sickHours > 0 && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-[var(--muted)]">
+            <Thermometer size={12} /> + {formatHours(weekHours.sickHours)} betalt sygetid (talt ikke med ovenfor)
+          </p>
+        )}
       </Card>
 
       <div className="space-y-2">

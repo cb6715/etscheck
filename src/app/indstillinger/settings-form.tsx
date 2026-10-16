@@ -37,6 +37,7 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
 
   const [hourlyRate, setHourlyRate] = useState(String(settings.hourlyRate));
   const [overtimeThresholdHours, setOvertimeThresholdHours] = useState(String(settings.overtimeThresholdHours));
+  const [workDaysPerWeek, setWorkDaysPerWeek] = useState(String(settings.workDaysPerWeek));
   const [overtimeBonusPct, setOvertimeBonusPct] = useState(String(settings.overtimeBonusPct * 100));
   const [nightSupplement, setNightSupplement] = useState(String(settings.nightSupplement));
   const [nightStartHour, setNightStartHour] = useState(settings.nightStartHour);
@@ -64,6 +65,7 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
       await updateWageSettings({
         hourlyRate: Number(hourlyRate) || 0,
         overtimeThresholdHours: Number(overtimeThresholdHours) || 0,
+        workDaysPerWeek: Math.min(7, Math.max(1, Number(workDaysPerWeek) || 5)),
         overtimeBonusPct: (Number(overtimeBonusPct) || 0) / 100,
         nightSupplement: Number(nightSupplement) || 0,
         nightStartHour,
@@ -92,6 +94,16 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
         </Field>
         <Field label="Overtid efter (timer/uge)">
           <input className={inputClass} type="number" value={overtimeThresholdHours} onChange={(e) => setOvertimeThresholdHours(e.target.value)} />
+        </Field>
+        <Field label="Dage om ugen (for overtidsgrænsen)">
+          <input
+            className={inputClass}
+            type="number"
+            min={1}
+            max={7}
+            value={workDaysPerWeek}
+            onChange={(e) => setWorkDaysPerWeek(e.target.value)}
+          />
         </Field>
         <Field label="Overtidstillæg (%)">
           <input className={inputClass} type="number" value={overtimeBonusPct} onChange={(e) => setOvertimeBonusPct(e.target.value)} />
@@ -144,6 +156,12 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
           <input className={inputClass} type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} />
         </Field>
       </div>
+      <p className="text-xs text-[var(--muted)]">
+        &quot;Dage om ugen&quot; bruges kun til at skalere overtidsgrænsen ned, hvis du fast arbejder færre end 5
+        dage om ugen — fx 4 dage giver en grænse på {Math.round((Number(overtimeThresholdHours) / 5) * 4)}t
+        i stedet for {overtimeThresholdHours}t. Den er fast hele ugen, uanset hvor mange dage du allerede har
+        arbejdet, og uanset om du arbejder lange dage tidligt i ugen.
+      </p>
       <p className="text-xs text-[var(--muted)]">
         Skattefradraget spores hen over denne periode, ikke kalendermåneden. Opdatér datoerne her, når en ny
         lønperiode starter.

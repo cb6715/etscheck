@@ -40,6 +40,12 @@ export type WageConfig = {
    * threshold, but they still count toward the period's gross/ATP like
    * any other paid hours. */
   sickPayHourlyRate: number;
+  /** How many days a normal work week has for this person — used only to
+   * pro-rate the weekly overtime threshold (see weeklyOvertimeThresholdHours
+   * below). 5 means the full overtimeThresholdHours applies; fewer days
+   * pro-rates it down proportionally. Fixed in settings, not inferred from
+   * how many days have actually been worked so far in a given week. */
+  workDaysPerWeek: number;
 };
 
 export const DEFAULT_WAGE_CONFIG: WageConfig = {
@@ -59,6 +65,7 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   payPeriodStart: new Date(2026, 7, 24),
   payPeriodEnd: new Date(2026, 8, 20),
   sickPayHourlyRate: 132,
+  workDaysPerWeek: 5,
 };
 
 function atMinuteOfDay(day: Date, minutes: number): Date {
@@ -161,23 +168,23 @@ export function computeSickDayEarnings(
 }
 
 /**
- * The 37-timers overtime threshold is pro-rated for a work week shorter
- * than 5 days: the configured threshold assumes a 5-day week, i.e.
- * `overtimeThresholdHours / 5` "normal" hours per worked day. A week where
- * only 4 distinct calendar days end up having a shift therefore has a
- * threshold of round(37/5 × 4) = 30 timer, not the full 37 — a 5th day
- * worked later in that same week still only brings it back up to the full
- * 37, it never grows past that. `workedDaysThisWeek` should count distinct
- * calendar days with at least one shift so far this ISO week, including
- * today.
+ * The 37-timers overtime threshold, pro-rated for a configured work week
+ * shorter than 5 days: `overtimeThresholdHours / 5` "normal" hours per day,
+ * times `workDaysPerWeek`. This is a FIXED setting from indstillinger, not
+ * derived from how many days happen to have been worked so far this week —
+ * an earlier version computed it from "distinct days worked so far", which
+ * meant front-loading long shifts into the first few days of the week
+ * tripped "overtid" well before anywhere near the real weekly hours, since
+ * day 3 of a 5-day week was (wrongly) treated as if the week only had 3
+ * days in it. Using the configured day count keeps the threshold stable
+ * all week, regardless of which days you've actually worked yet.
  */
 export function weeklyOvertimeThresholdHours(
-  workedDaysThisWeek: number,
-  config: Pick<WageConfig, "overtimeThresholdHours">
+  config: Pick<WageConfig, "overtimeThresholdHours" | "workDaysPerWeek">
 ): number {
-  if (workedDaysThisWeek >= 5) return config.overtimeThresholdHours;
+  if (config.workDaysPerWeek >= 5) return config.overtimeThresholdHours;
   const perDay = config.overtimeThresholdHours / 5;
-  return Math.round(perDay * Math.max(1, workedDaysThisWeek));
+  return Math.round(perDay * Math.max(1, config.workDaysPerWeek));
 }
 
 /**
