@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getWeekRange, startOfDay, endOfDay } from "@/lib/date";
-import { copenhagenDayKey, copenhagenWeekday, zonedDateTime } from "@/lib/timezone";
+import { copenhagenDayKey, copenhagenWeekday, zonedDateTime, addCalendarDays } from "@/lib/timezone";
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
@@ -518,8 +518,14 @@ export async function getWeekAttendance(referenceDate: Date = new Date()): Promi
   const WEEKDAYS_SHORT_DA = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
   const days: DayAttendance[] = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
+    // addCalendarDays, not `d.setDate(start.getDate() + i)` — that reads/
+    // writes the day-of-month in the server runtime's own timezone (UTC),
+    // which only happens to agree with the Danish calendar day here because
+    // Danish DST always flips on a Sunday, late enough that a Monday-start
+    // week's boundary day is never split across the transition. Still worth
+    // using the zone-aware helper so this doesn't quietly break if the week
+    // start convention or DST rules ever change.
+    const d = addCalendarDays(start, i);
     const key = copenhagenDayKey(d);
     const session = byDay.get(key);
     const weekday = copenhagenWeekday(d);

@@ -8,7 +8,7 @@
 // run in UTC) AND in the browser (Danish local time) — without this, "12:00
 // pause" would mean a different instant depending on which side evaluated
 // it, and the two could disagree on gross/net for the same shift.
-import { zonedParts, zonedDateTime, copenhagenStartOfDay as startOfLocalDay, addCalendarDays } from "@/lib/timezone";
+import { zonedParts, zonedDateTime, copenhagenStartOfDay as startOfLocalDay, addCalendarDays, copenhagenWeekday } from "@/lib/timezone";
 
 export type WageConfig = {
   hourlyRate: number;
@@ -85,11 +85,15 @@ export function getPayPeriodRange(config: Pick<WageConfig, "payPeriodStart" | "p
 }
 
 /** Last weekday (Mon-Fri) of the given date's month — an approximation of
- * "sidste business dag i måneden" that doesn't account for helligdage. */
+ * "sidste business dag i måneden" that doesn't account for helligdage.
+ * Danish-zone-aware (not `date.getFullYear()`/`getMonth()`/native
+ * `setDate()`, which read/write in the EXECUTING RUNTIME's own timezone) so
+ * this is safe even if ever called server-side, not just from the browser. */
 export function lastWeekdayOfMonth(date: Date): Date {
-  const d = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  while (d.getDay() === 0 || d.getDay() === 6) {
-    d.setDate(d.getDate() - 1);
+  const { year, month } = zonedParts(date);
+  let d = zonedDateTime(year, month + 1, 0, 0, 0); // day 0 of next month = last day of this month
+  while (copenhagenWeekday(d) === 0 || copenhagenWeekday(d) === 6) {
+    d = addCalendarDays(d, -1);
   }
   return d;
 }
@@ -273,7 +277,7 @@ export function computeWeekGrossFromHours(
   config: WageConfig
 ): IntervalEarnings {
   const paidSeconds = Math.round(hours * 3600);
-  const thresholdSeconds = config.overtimeThresholdHours * 3600;
+  const thresholdSeconds = weeklyOvertimeThresholdHours(config) * 3600;
   const normalSeconds = Math.max(0, Math.min(paidSeconds, thresholdSeconds - priorWeekElapsedSeconds));
   const overtimeSeconds = paidSeconds - normalSeconds;
   const grossAmount =

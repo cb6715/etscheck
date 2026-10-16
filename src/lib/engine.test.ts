@@ -9,6 +9,7 @@ import {
   expectedPayout,
   feriepengeForGross,
   getPayPeriodRange,
+  lastWeekdayOfMonth,
   DEFAULT_WAGE_CONFIG,
   type WageConfig,
 } from "./engine";
@@ -257,5 +258,29 @@ describe("date.ts day/week boundaries are Copenhagen-correct regardless of runti
     expect(copenhagenDayKey(new Date(end.getTime()))).toBe("2026-10-18"); // Sunday, inclusive end
     expect(start.getTime()).toBeLessThanOrEqual(ref.getTime());
     expect(end.getTime()).toBeGreaterThan(ref.getTime());
+  });
+});
+
+describe("lastWeekdayOfMonth", () => {
+  it("steps back from a weekend to the preceding Friday", () => {
+    // 2026-10-31 is a Saturday, so the last weekday is Friday 2026-10-30.
+    const d = lastWeekdayOfMonth(dk(2026, 10, 1, 12, 0));
+    expect(copenhagenDayKey(d)).toBe("2026-10-30");
+  });
+
+  it("keeps a month-end that already falls on a weekday", () => {
+    // 2026-04-30 is a Thursday.
+    const d = lastWeekdayOfMonth(dk(2026, 4, 15, 12, 0));
+    expect(copenhagenDayKey(d)).toBe("2026-04-30");
+  });
+
+  it("is correct for a month containing the Danish DST fall-back (last Sunday of October)", () => {
+    // Regression: a native `date.getFullYear()`/`getMonth()`/`setDate()`
+    // implementation reads/writes in the executing runtime's own timezone
+    // (UTC on the server), not Danish local — this exercises the same
+    // October-2026 month the fall-back transition (2026-10-25) falls in,
+    // to make sure the zone-aware rewrite still lands on 2026-10-30.
+    const d = lastWeekdayOfMonth(dk(2026, 10, 28, 23, 45));
+    expect(copenhagenDayKey(d)).toBe("2026-10-30");
   });
 });
