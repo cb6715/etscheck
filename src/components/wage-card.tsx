@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   LogIn,
@@ -110,21 +110,34 @@ export function WageCard() {
   const lastHourMilestoneRef = useRef<number | null>(null);
   const wasOvertimeRef = useRef<boolean | null>(null);
 
-  function loadContext() {
-    getWageContext()
-      .then((c) => {
-        setContext(c);
-        setLoadError(false);
-      })
-      .catch((e) => {
-        console.error("Wage context fetch failed:", e);
-        setLoadError(true);
-      });
-  }
+  // A cold server (e.g. the first request after the backend has been idle
+  // for a while) occasionally fails its very first database query. Retrying
+  // once, automatically, after a short pause means that transient hiccup
+  // resolves itself instead of forcing the user to notice and click "Prøv
+  // igen" themselves — the manual button below still covers a real,
+  // persistent failure.
+  const loadContext = useCallback(() => {
+    function attempt(isRetry: boolean) {
+      getWageContext()
+        .then((c) => {
+          setContext(c);
+          setLoadError(false);
+        })
+        .catch((e) => {
+          console.error("Wage context fetch failed:", e);
+          if (isRetry) {
+            setLoadError(true);
+          } else {
+            setTimeout(() => attempt(true), 1200);
+          }
+        });
+    }
+    attempt(false);
+  }, []);
 
   useEffect(() => {
     loadContext();
-  }, []);
+  }, [loadContext]);
 
   function refreshPushCount() {
     getPushSubscriptionCount()
@@ -469,7 +482,7 @@ export function WageCard() {
         <span className="flex items-center gap-1.5 text-sm text-[var(--danger)]">
           <AlertTriangle size={16} /> Løn kunne ikke indlæses
         </span>
-        <button onClick={loadContext} className="text-xs font-bold text-[var(--accent)] underline underline-offset-2">
+        <button onClick={() => loadContext()} className="text-xs font-bold text-[var(--accent)] underline underline-offset-2">
           Prøv igen
         </button>
       </Card>
