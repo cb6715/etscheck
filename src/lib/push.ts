@@ -28,7 +28,13 @@ export async function sendToSubscription(sub: PushSubscriptionRow, payload: Push
   try {
     await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify(payload)
+      JSON.stringify(payload),
+      // TTL/urgency, not left at the library defaults — a low/unspecified
+      // urgency push is the kind a device under battery-saving conditions
+      // (very common on a locked phone) is most likely to hold back or drop
+      // rather than deliver immediately. "high" + a generous TTL is what a
+      // known-working sibling implementation (Forge) sets explicitly.
+      { TTL: 86400, urgency: "high" }
     );
     return "sent";
   } catch (e: unknown) {

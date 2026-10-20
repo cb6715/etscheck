@@ -330,11 +330,28 @@ export function WageCard() {
     }
   }
 
+  // Everything here runs inline, synchronously chained off the click that
+  // called it — NOT split into "request permission, let a useEffect pick
+  // up the resulting state change and subscribe later". iOS Safari ties
+  // both Notification.requestPermission() AND pushManager.subscribe() to
+  // the original user-gesture's transient activation window; once that
+  // call chain gets interrupted by a React state update + re-render +
+  // effect (a separate task, no longer "from a click" as far as WebKit is
+  // concerned), subscribe() silently does nothing on iOS — permission
+  // shows "granted" but no subscription ever gets created. Confirmed by
+  // comparing against Forge (cb6715/forge), a working sibling app, whose
+  // enablePush() does permission + subscribe + save in one unbroken chain
+  // for exactly this reason.
   function enableNotifications() {
-    // Just updates notifPermission — the effect above picks up the
-    // "granted" transition and handles the actual Web Push subscription,
-    // same code path a returning already-granted user goes through too.
-    requestNotificationPermission().then(setNotifPermission);
+    requestNotificationPermission()
+      .then(async (permission) => {
+        setNotifPermission(permission);
+        if (permission !== "granted") return;
+        const subscription = await subscribeToPush();
+        if (subscription) await savePushSubscription(subscription);
+        refreshPushCount();
+      })
+      .catch((e) => console.error("Enable notifications failed:", e));
   }
 
   function handleCheckIn() {
