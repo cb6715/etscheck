@@ -4,7 +4,8 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Receipt, Upload, Trash2, Info, Check } from "lucide-react";
 import { Card, Button, Field, inputClass } from "@/components/ui/primitives";
-import { uploadPayslip, deletePayslip, confirmPayslipFields, type PayslipRow } from "@/lib/payslips";
+import { Modal } from "@/components/ui/modal";
+import { uploadPayslip, deletePayslip, confirmPayslipFields, getPayslips, type PayslipRow } from "@/lib/payslips";
 
 function formatSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -29,6 +30,9 @@ function toDraft(p: PayslipRow): DraftFields {
   };
 }
 
+// Shown inside a Modal popup — the user must actively approve (or correct)
+// these numbers before anything is written to their real wage settings,
+// never silently in the background.
 function ReviewForm({ payslip, onDone }: { payslip: PayslipRow; onDone: () => void }) {
   const router = useRouter();
   const [draft, setDraft] = useState<DraftFields>(toDraft(payslip));
@@ -53,10 +57,10 @@ function ReviewForm({ payslip, onDone }: { payslip: PayslipRow; onDone: () => vo
   }
 
   return (
-    <div className="space-y-3 rounded-2xl bg-[var(--surface-2)] p-3">
+    <div className="space-y-3">
       {payslip.extraction_status === "extracted" ? (
         <p className="text-xs text-[var(--muted)]">
-          Fundet på lønsedlen — ret de tal, der er forkerte eller tomme, og brug dem så.
+          Fundet på lønsedlen — godkend tallene, eller ret dem først, hvis noget er forkert eller tomt.
           {f?.grossAmount != null && f?.netAmount != null && (
             <> ({f.grossAmount.toLocaleString("da-DK")} kr brutto, {f.netAmount.toLocaleString("da-DK")} kr netto fundet.)</>
           )}
@@ -91,7 +95,7 @@ function ReviewForm({ payslip, onDone }: { payslip: PayslipRow; onDone: () => vo
           Luk
         </Button>
         <Button onClick={apply} disabled={pending} className="flex flex-1 items-center justify-center gap-1.5">
-          <Check size={14} /> {pending ? "Gemmer..." : "Brug disse tal"}
+          <Check size={14} /> {pending ? "Gemmer..." : "Godkend og brug disse tal"}
         </Button>
       </div>
     </div>
@@ -99,7 +103,6 @@ function ReviewForm({ payslip, onDone }: { payslip: PayslipRow; onDone: () => vo
 }
 
 export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipRow[] }) {
-  const router = useRouter();
   const [payslips, setPayslips] = useState(initialPayslips);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
@@ -122,7 +125,13 @@ export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipR
         return;
       }
       if (fileInputRef.current) fileInputRef.current.value = "";
-      router.refresh();
+      // Fetched directly (not via router.refresh()) so the just-extracted
+      // fields are available immediately to open the approval popup with —
+      // refresh() alone would re-render this component with stale props
+      // until the next navigation.
+      const fresh = await getPayslips();
+      setPayslips(fresh);
+      setReviewingId(result.data.id);
     });
   }
 
@@ -134,6 +143,8 @@ export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipR
     });
   }
 
+  const reviewing = payslips.find((p) => p.id === reviewingId) ?? null;
+
   return (
     <Card className="space-y-3 p-5">
       <h2 className="flex items-center gap-2 text-sm font-extrabold">
@@ -142,8 +153,8 @@ export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipR
       <p className="flex items-start gap-2 text-xs text-[var(--muted)]">
         <Info size={14} className="mt-0.5 shrink-0" />
         Upload en lønseddel som PDF, og vi forsøger at læse skatteprocent, AM-bidrag, fradrag, ATP og timeløn direkte
-        fra den. Du ser altid tallene og kan rette dem, før de bruges — intet ændres i dine lønindstillinger, før du
-        trykker &quot;Brug disse tal&quot;.
+        fra den. Du ser altid tallene i en popup og skal selv godkende dem — intet ændres i dine lønindstillinger, før
+        du trykker &quot;Godkend og brug disse tal&quot;.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input ref={fileInputRef} type="file" accept="application/pdf,image/png,image/jpeg" className="text-sm" />
@@ -155,29 +166,30 @@ export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipR
       {payslips.length > 0 && (
         <ul className="space-y-1.5">
           {payslips.map((p) => (
-            <li key={p.id} className="space-y-2">
-              <div className="glass flex items-center justify-between gap-2 rounded-xl p-2.5">
-                <button
-                  type="button"
-                  onClick={() => setReviewingId(reviewingId === p.id ? null : p.id)}
-                  className="min-w-0 flex-1 truncate text-left text-sm font-semibold"
-                >
-                  {p.filename}
-                  {p.extraction_status === "pending" && <span className="text-[var(--muted)]"> — læser...</span>}
+            <li key={p.id} className="glass flex items-center justify-between gap-2 rounded-xl p-2.5">
+              <button
+                type="button"
+                onClick={() => setReviewingId(p.id)}
+                disabled={p.extraction_status === "pending"}
+                className="min-w-0 flex-1 truncate text-left text-sm font-semibold disabled:text-[var(--muted)]"
+              >
+                {p.filename}
+                {p.extraction_status === "pending" && <span className="text-[var(--muted)]"> — læser...</span>}
+              </button>
+              <span className="flex shrink-0 items-center gap-2 text-xs text-[var(--muted)]">
+                {formatSize(p.size_bytes)}
+                <button type="button" onClick={() => remove(p.id)} className="text-[var(--danger)]">
+                  <Trash2 size={14} />
                 </button>
-                <span className="flex shrink-0 items-center gap-2 text-xs text-[var(--muted)]">
-                  {formatSize(p.size_bytes)}
-                  <button type="button" onClick={() => remove(p.id)} className="text-[var(--danger)]">
-                    <Trash2 size={14} />
-                  </button>
-                </span>
-              </div>
-              {reviewingId === p.id && p.extraction_status !== "pending" && (
-                <ReviewForm payslip={p} onDone={() => setReviewingId(null)} />
-              )}
+              </span>
             </li>
           ))}
         </ul>
+      )}
+      {reviewing && (
+        <Modal title="Godkend oplysninger fra lønseddel" onClose={() => setReviewingId(null)}>
+          <ReviewForm payslip={reviewing} onDone={() => setReviewingId(null)} />
+        </Modal>
       )}
     </Card>
   );
