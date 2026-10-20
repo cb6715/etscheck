@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.1.4",
     "@netlify/database": "^2.0.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.45.0",

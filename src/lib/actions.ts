@@ -94,7 +94,7 @@ type SessionRow = {
 // function in this file goes through this, so access control enforced here
 // (and in requireActiveAccess) protects every data operation, not just the
 // pages that happen to redirect unauthenticated visitors.
-async function getUserId(): Promise<number> {
+export async function getUserId(): Promise<number> {
   const userId = await getSessionUserId();
   if (userId === null) throw new Error("Ikke logget ind.");
   return userId;
@@ -241,6 +241,28 @@ export async function updateWageSettings(input: WageSettingsInput): Promise<void
   const config = toConfig(await getOrCreateWageSettingsRow(userId));
   await rebalancePeriodNetAmounts(userId, config);
   revalidatePath("/indstillinger");
+  revalidatePath("/");
+}
+
+export type TrackingMode = "daily" | "monthly";
+
+// Which of the two shift-registration flows the onboarding wizard sent the
+// user down: 'daily' is the original tjek-ind/tjek-ud flow, 'monthly' plans
+// a whole month of shifts up front (see src/lib/schedule-actions.ts). Both
+// feed the SAME wage engine via work_sessions — this only changes which UI
+// the dashboard shows, never the underlying løn-beregning.
+export async function getTrackingMode(): Promise<TrackingMode> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const [row] = await db().sql<{ tracking_mode: TrackingMode }>`SELECT tracking_mode FROM wage_settings WHERE user_id = ${userId}`;
+  return row?.tracking_mode ?? "daily";
+}
+
+export async function setTrackingMode(mode: TrackingMode): Promise<void> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  await getOrCreateWageSettingsRow(userId);
+  await db().sql`UPDATE wage_settings SET tracking_mode = ${mode} WHERE user_id = ${userId}`;
   revalidatePath("/");
 }
 
