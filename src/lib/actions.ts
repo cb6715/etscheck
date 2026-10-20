@@ -548,9 +548,28 @@ export async function checkOut(): Promise<WageContext> {
       });
     }
 
+    // Weekly hour-count milestones (10t, 20t, 30t…) — same elapsed-seconds
+    // basis the overtime threshold itself is measured against (includes the
+    // unpaid break, excludes sygedage), so "du er på Xt" always lines up
+    // with "ugens grænse er Yt" in the overtime message below.
+    const HOUR_MILESTONE_STEP = 10;
     const shiftElapsedSeconds = (checkOutAt.getTime() - checkInAt.getTime()) / 1000;
-    const wasInOvertimeBefore = weekSecondsBefore > thresholdHours * 3600;
-    const isInOvertimeAfter = weekSecondsBefore + shiftElapsedSeconds > thresholdHours * 3600;
+    const weekHoursBefore = weekSecondsBefore / 3600;
+    const weekHoursAfter = (weekSecondsBefore + shiftElapsedSeconds) / 3600;
+    const hourMilestoneBefore = Math.floor(weekHoursBefore / HOUR_MILESTONE_STEP);
+    const hourMilestoneAfter = Math.floor(weekHoursAfter / HOUR_MILESTONE_STEP);
+    if (hourMilestoneAfter > hourMilestoneBefore) {
+      for (let m = hourMilestoneBefore + 1; m <= hourMilestoneAfter; m++) {
+        await sendPushToUser(userId, {
+          title: `⏱️ Du har nu arbejdet ${m * HOUR_MILESTONE_STEP} timer denne uge`,
+          body: `Du er på ${weekHoursAfter.toFixed(1)}t ud af ugens grænse på ${thresholdHours}t.`,
+          tag: "hour-milestone",
+        });
+      }
+    }
+
+    const wasInOvertimeBefore = weekHoursBefore > thresholdHours;
+    const isInOvertimeAfter = weekHoursAfter > thresholdHours;
     if (isInOvertimeAfter && !wasInOvertimeBefore) {
       const overtimeRate = config.hourlyRate * (1 + config.overtimeBonusPct);
       await sendPushToUser(userId, {

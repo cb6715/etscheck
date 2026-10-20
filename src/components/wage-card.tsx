@@ -41,6 +41,7 @@ import { useToast } from "@/components/toast-provider";
 import { notificationPermission, requestNotificationPermission, subscribeToPush } from "@/lib/notify";
 
 const MILESTONE_STEP_KR = 1000;
+const HOUR_MILESTONE_STEP = 10;
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
@@ -106,6 +107,7 @@ export function WageCard() {
   const [pending, startTransition] = useTransition();
 
   const lastMilestoneRef = useRef<number | null>(null);
+  const lastHourMilestoneRef = useRef<number | null>(null);
   const wasOvertimeRef = useRef<boolean | null>(null);
 
   function loadContext() {
@@ -230,6 +232,17 @@ export function WageCard() {
     return totalElapsedThisWeek > context.thisWeekThresholdHours * 3600;
   }, [context, now]);
 
+  // Same elapsed-seconds basis as inOvertime (includes the unpaid break,
+  // excludes sygedage) but kept live between shifts too, not just while
+  // checked in — "hvor mange timer har jeg arbejdet denne uge" shouldn't
+  // go blank the moment you tap "Tjek ud".
+  const weekHoursElapsed = useMemo(() => {
+    if (!context) return null;
+    const elapsedThisSession =
+      context.openSession && now ? (now.getTime() - new Date(context.openSession.checkInAt).getTime()) / 1000 : 0;
+    return (context.priorWeekElapsedSeconds + elapsedThisSession) / 3600;
+  }, [context, now]);
+
   const periodEndKey = context ? new Date(context.config.payPeriodEnd).toISOString().slice(0, 10) : null;
   const periodHasEnded = useMemo(() => {
     if (!context) return false;
@@ -277,6 +290,28 @@ export function WageCard() {
       lastMilestoneRef.current = currentMilestone;
     }
   }, [netto, notify]);
+
+  // Hour-count toasts ("du har nu arbejdet 10/20/30 timer denne uge") —
+  // same HOUR_MILESTONE_STEP and elapsed-seconds basis as the server-side
+  // push version fired from checkOut in actions.ts, so the two agree.
+  useEffect(() => {
+    if (weekHoursElapsed === null) return;
+    const currentMilestone = Math.floor(weekHoursElapsed / HOUR_MILESTONE_STEP);
+    if (lastHourMilestoneRef.current === null) {
+      lastHourMilestoneRef.current = currentMilestone;
+      return;
+    }
+    if (currentMilestone > lastHourMilestoneRef.current) {
+      for (let m = lastHourMilestoneRef.current + 1; m <= currentMilestone; m++) {
+        notify(
+          `⏱️ Du har nu arbejdet ${m * HOUR_MILESTONE_STEP} timer denne uge`,
+          `Du er på ${weekHoursElapsed.toFixed(1)}t ud af ugens grænse på ${context?.thisWeekThresholdHours}t.`,
+          "hour-milestone"
+        );
+      }
+      lastHourMilestoneRef.current = currentMilestone;
+    }
+  }, [weekHoursElapsed, notify, context]);
 
   // Overtime toast — fires once on the false→true transition.
   useEffect(() => {

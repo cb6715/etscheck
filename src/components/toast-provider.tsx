@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
-import { PartyPopper, TrendingUp, CalendarCheck, Bell } from "lucide-react";
+import { PartyPopper, TrendingUp, CalendarCheck, Clock, Bell } from "lucide-react";
 import { fireNativeNotification } from "@/lib/notify";
 
-type ToastTone = "milestone" | "overtime" | "period" | "default";
+type ToastTone = "milestone" | "hour-milestone" | "overtime" | "period" | "default";
 
 type Toast = { id: number; title: string; body: string; tone: ToastTone };
 
@@ -18,6 +18,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 const TONE_ICON: Record<ToastTone, typeof Bell> = {
   milestone: PartyPopper,
+  "hour-milestone": Clock,
   overtime: TrendingUp,
   period: CalendarCheck,
   default: Bell,
@@ -25,6 +26,7 @@ const TONE_ICON: Record<ToastTone, typeof Bell> = {
 
 const TONE_ACCENT: Record<ToastTone, string> = {
   milestone: "from-[var(--accent)] to-[var(--accent-2)]",
+  "hour-milestone": "from-sky-500 to-blue-500",
   overtime: "from-amber-500 to-orange-500",
   period: "from-[var(--accent-2)] to-[var(--accent-3)]",
   default: "from-[var(--accent)] to-[var(--accent-2)]",
