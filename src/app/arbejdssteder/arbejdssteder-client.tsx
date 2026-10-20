@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { MapPin, Plus, Trash2, Crosshair, Navigation, AlertTriangle } from "lucide-react";
 import { Card, Field, inputClass, Button, Badge } from "@/components/ui/primitives";
 import { createWorkplace, deleteWorkplace, updateWorkplace, type WorkplaceRow } from "@/lib/workplace-actions";
@@ -20,6 +20,18 @@ export function ArbejdsstederClient({ initialWorkplaces }: { initialWorkplaces: 
   const [checking, setChecking] = useState(false);
   const [proximity, setProximity] = useState<WorkplaceProximity[] | null>(null);
   const [checkError, setCheckError] = useState("");
+
+  // geolocationSupported() reads `navigator`, which doesn't exist during
+  // server rendering — checking it directly in render would make the
+  // server-rendered HTML and the first client render disagree (React
+  // hydration mismatch). Defaulting to "supported" and only flipping to
+  // false after mount means the warning can briefly not show on an
+  // unsupported browser instead, never a hydration error.
+  const [geoSupported, setGeoSupported] = useState(true);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- genuinely syncing with an external system (navigator), only knowable after mount, not derivable from props/state.
+    setGeoSupported(geolocationSupported());
+  }, []);
 
   async function useMyLocation() {
     setLocating(true);
@@ -108,7 +120,7 @@ export function ArbejdsstederClient({ initialWorkplaces }: { initialWorkplaces: 
           holde øje med din placering, mens siden er lukket; det er en begrænsning i selve browseren/telefonen, ikke
           noget vi har valgt fra. Tryk knappen, mens du har appen åben, for at se om du er tæt på et gemt arbejdssted.
         </p>
-        {!geolocationSupported() && (
+        {!geoSupported && (
           <p className="flex items-center gap-2 text-sm font-semibold text-[var(--danger)]">
             <AlertTriangle size={14} /> Din browser understøtter ikke geolocation.
           </p>
