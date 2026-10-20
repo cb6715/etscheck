@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Users, CreditCard, ShieldCheck } from "lucide-react";
+import { Users, CreditCard, ShieldCheck, Gift } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
 import type { AdminStats } from "@/lib/redeem-actions";
 
@@ -19,10 +19,11 @@ function StatCard({ icon, label, value }: { icon: ReactNode; label: string; valu
 
 export function AdminStatsCards({ stats }: { stats: AdminStats }) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-3">
       <StatCard icon={<Users size={18} />} label="Brugere i alt" value={stats.totalUsers} />
-      <StatCard icon={<CreditCard size={18} />} label="Betalende" value={stats.paidSubscribers} />
       <StatCard icon={<ShieldCheck size={18} />} label="Med adgang" value={stats.activeAccess} />
+      <StatCard icon={<CreditCard size={18} />} label="Betalende" value={stats.paidSubscribers} />
+      <StatCard icon={<Gift size={18} />} label="Gratis adgang (kode)" value={stats.freeAccess} />
     </div>
   );
 }

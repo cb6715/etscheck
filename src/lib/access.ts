@@ -13,13 +13,14 @@ export type SubscriptionStatus = "none" | "pending" | "active" | "past_due" | "c
 
 export type AccessState = {
   isOwner: boolean;
+  hasFreeAccess: boolean;
   status: SubscriptionStatus;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   hasAccess: boolean;
 };
 
-type UserRow = { id: number; is_owner: boolean; stripe_customer_id: string | null };
+type UserRow = { id: number; is_owner: boolean; has_free_access: boolean; stripe_customer_id: string | null };
 type SubscriptionRow = {
   status: SubscriptionStatus;
   current_period_end: Date | null;
@@ -45,23 +46,27 @@ export const getAccessState = cache(async function getAccessState(
   client: DbClient = db()
 ): Promise<AccessState> {
   const [[user], [sub]] = await Promise.all([
-    client.sql<UserRow>`SELECT id, is_owner, stripe_customer_id FROM users WHERE id = ${userId}`,
+    client.sql<UserRow>`SELECT id, is_owner, has_free_access, stripe_customer_id FROM users WHERE id = ${userId}`,
     client.sql<SubscriptionRow>`SELECT status, current_period_end, cancel_at_period_end FROM subscriptions WHERE user_id = ${userId}`,
   ]);
 
   const isOwner = Boolean(user?.is_owner) || isOwnerUserId(userId);
+  const hasFreeAccess = Boolean(user?.has_free_access);
   const status: SubscriptionStatus = sub?.status ?? "none";
 
   return {
     isOwner,
+    hasFreeAccess,
     status,
     currentPeriodEnd: sub?.current_period_end ? new Date(sub.current_period_end).toISOString() : null,
     cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
     // Stripe keeps a subscription's status "active" right up until the paid
     // period actually ends, even after the user has clicked cancel — so
     // this already honors "access until the real end date" with no extra
-    // grace-period logic needed here.
-    hasAccess: isOwner || status === "active",
+    // grace-period logic needed here. A redeemed code (hasFreeAccess) grants
+    // the SAME app access as isOwner/active, but never admin — see nav-bar.tsx
+    // and /admin, which both key off isOwner alone.
+    hasAccess: isOwner || hasFreeAccess || status === "active",
   };
 });
 

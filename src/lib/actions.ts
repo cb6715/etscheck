@@ -260,10 +260,20 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
   // advances it, this exact period's boundaries/totals would otherwise be
   // gone. Lets the dashboard show "sidste periode: X kr, udbetales d. Y"
   // reliably after closing, instead of only ever showing the new period.
-  await client.sql`
+  // ON CONFLICT DO NOTHING + checking the returned row is the same
+  // double-tap guard checkIn/checkOut already use via their own unique
+  // index — a duplicate/retried "Luk lønperiode" for the SAME period
+  // becomes a no-op here instead of a second history row plus a second
+  // period advance below.
+  const inserted = await client.sql<{ id: number }>`
     INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
     VALUES (${userId}, ${copenhagenDayKey(config.payPeriodStart)}, ${copenhagenDayKey(config.payPeriodEnd)}, ${finalTotals.gross}, ${finalNetto}, ${config.advanceAmount})
+    ON CONFLICT (user_id, period_start, period_end) DO NOTHING
+    RETURNING id
   `;
+  if (inserted.length === 0) {
+    return fail("Denne periode er allerede lukket.");
+  }
 
   await updateWageSettings({ payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
   await sendPushToUser(client, userId, {
@@ -276,6 +286,7 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
 }
 
 export type LastClosedPeriod = {
+  id: number;
   periodStart: string;
   periodEnd: string;
   grossAmount: number;
@@ -284,6 +295,7 @@ export type LastClosedPeriod = {
 };
 
 type PayPeriodHistoryRow = {
+  id: number;
   period_start: Date;
   period_end: Date;
   gross_amount: number;
@@ -293,6 +305,7 @@ type PayPeriodHistoryRow = {
 
 function toLastClosedPeriod(row: PayPeriodHistoryRow): LastClosedPeriod {
   return {
+    id: row.id,
     periodStart: copenhagenDayKey(new Date(row.period_start)),
     periodEnd: copenhagenDayKey(new Date(row.period_end)),
     grossAmount: row.gross_amount,
@@ -310,7 +323,7 @@ export async function getLastClosedPeriod(): Promise<LastClosedPeriod | null> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
   const [row] = await db().sql<PayPeriodHistoryRow>`
-    SELECT period_start, period_end, gross_amount, net_amount, advance_amount
+    SELECT id, period_start, period_end, gross_amount, net_amount, advance_amount
     FROM pay_period_history WHERE user_id = ${userId} ORDER BY period_end DESC LIMIT 1
   `;
   return row ? toLastClosedPeriod(row) : null;
@@ -323,10 +336,21 @@ export async function getPayPeriodHistory(): Promise<LastClosedPeriod[]> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
   const rows = await db().sql<PayPeriodHistoryRow>`
-    SELECT period_start, period_end, gross_amount, net_amount, advance_amount
+    SELECT id, period_start, period_end, gross_amount, net_amount, advance_amount
     FROM pay_period_history WHERE user_id = ${userId} ORDER BY period_end DESC
   `;
   return rows.map(toLastClosedPeriod);
+}
+
+/** Deletes one lønhistorik entry — covers both a mistaken backfillPeriodHistory
+ * entry and a real closed period logged in error. Scoped to user_id so this
+ * can never touch another account's history via a guessed id. */
+export async function deletePayPeriodHistory(id: number): Promise<void> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  await db().sql`DELETE FROM pay_period_history WHERE id = ${id} AND user_id = ${userId}`;
+  revalidatePath("/");
+  revalidatePath("/loenhistorik");
 }
 
 /**
@@ -365,10 +389,15 @@ export async function backfillPeriodHistory(
   const paidSeconds = rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
   const netAmount = netForCumulative(gross, paidSeconds, config);
 
-  await client.sql`
+  const inserted = await client.sql<{ id: number }>`
     INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
     VALUES (${userId}, ${copenhagenDayKey(start)}, ${copenhagenDayKey(periodEnd)}, ${gross}, ${netAmount}, ${advanceAmount})
+    ON CONFLICT (user_id, period_start, period_end) DO NOTHING
+    RETURNING id
   `;
+  if (inserted.length === 0) {
+    return fail("Du har allerede gemt denne periode i lønhistorikken.");
+  }
   revalidatePath("/");
   revalidatePath("/loenhistorik");
   return ok(undefined);
@@ -973,6 +1002,42 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<Ac
   revalidatePath("/indstillinger");
   revalidatePath("/");
   return ok(undefined);
+}
+
+export type PeriodGap = { gapStart: string; gapEnd: string; days: number };
+
+/** Detects an unfilled stretch at the START of the current pay period —
+ * e.g. someone signs up with their period already running, so the days
+ * before their first real/manual entry have no wage data at all. Meant to
+ * be shown as a PERSISTENT dashboard warning until closed by logging those
+ * days via "Tidligere timer" (Indstillinger) — unlike the one-time
+ * onboarding hint, this keeps surfacing on every load until the gap is
+ * actually filled, not just mentioned once during signup. */
+export async function getPeriodGap(): Promise<PeriodGap | null> {
+  const userId = await getUserId();
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+
+  const periodStart = startOfDay(config.payPeriodStart);
+  const today = startOfDay(new Date());
+  if (periodStart >= today) return null; // period starts today or later — nothing to backfill yet
+
+  const periodEnd = startOfDay(config.payPeriodEnd);
+  const effectiveEnd = periodEnd < today ? periodEnd : today;
+  if (effectiveEnd <= periodStart) return null;
+
+  const [earliest] = await client.sql<{ check_in_at: Date }>`
+    SELECT check_in_at FROM work_sessions WHERE user_id = ${userId} ORDER BY check_in_at ASC LIMIT 1
+  `;
+  const earliestAt = earliest ? startOfDay(new Date(earliest.check_in_at)) : null;
+  if (earliestAt && earliestAt <= periodStart) return null; // already covered from the very start of the period
+
+  const gapEnd = earliestAt && earliestAt < effectiveEnd ? earliestAt : effectiveEnd;
+  const days = Math.round((gapEnd.getTime() - periodStart.getTime()) / 86400000);
+  if (days <= 0) return null;
+
+  return { gapStart: copenhagenDayKey(periodStart), gapEnd: copenhagenDayKey(gapEnd), days };
 }
 
 export async function deleteHistoricalWeek(id: number): Promise<void> {

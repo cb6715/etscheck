@@ -5,6 +5,7 @@ import { getSessionUserId } from "@/lib/session";
 import { getAccessState } from "@/lib/access";
 import { WageCard } from "@/components/wage-card";
 import { NextShiftCard } from "@/components/next-shift-card";
+import { PeriodGapBanner } from "@/components/period-gap-banner";
 import { Card } from "@/components/ui/primitives";
 import { greeting } from "@/lib/date";
 import { LandingPage } from "@/components/landing/landing-page";
@@ -21,6 +22,7 @@ export default async function HomePage() {
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-bold text-[var(--muted)]">{greeting(new Date())} 👋</h1>
+      <PeriodGapBanner />
       <WageCard />
       <NextShiftCard />
       <Link href="/uge">

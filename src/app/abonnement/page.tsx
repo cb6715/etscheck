@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CreditCard, Check, Crown, AlertTriangle } from "lucide-react";
+import { CreditCard, Check, Crown, Gift, AlertTriangle } from "lucide-react";
 import { getSessionUserId } from "@/lib/session";
 import { getBillingState } from "@/lib/billing-actions";
 import { Card, Badge, Button } from "@/components/ui/primitives";
@@ -30,6 +30,20 @@ export default async function AbonnementPage() {
           <h1 className="text-xl font-extrabold">Ejer-adgang</h1>
           <p className="text-sm text-[var(--muted)]">
             Din konto har permanent, gratis adgang til alle WageFlow-funktioner — intet abonnement nødvendigt.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (billing.hasFreeAccess) {
+    return (
+      <div className="animate-fade-up space-y-5 pt-4">
+        <Card className="space-y-3 p-6 text-center" elevated>
+          <Gift className="mx-auto text-[var(--accent)]" size={32} />
+          <h1 className="text-xl font-extrabold">Gratis adgang</h1>
+          <p className="text-sm text-[var(--muted)]">
+            Du har indløst en kode og har gratis adgang til alle WageFlow-funktioner — intet abonnement nødvendigt.
           </p>
         </Card>
       </div>

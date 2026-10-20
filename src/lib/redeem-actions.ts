@@ -5,11 +5,20 @@ import { db, type DbClient } from "@/lib/db";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { getUserId } from "@/lib/actions";
 
-// Redeem-code access: entering a valid code flips the SAME is_owner flag
-// that already means "always has access" (src/lib/access.ts), reusing the
-// existing access model instead of inventing a second one. No
-// requireActiveAccess here — this is the mechanism for GETTING access in
-// the first place, so it only needs you to be logged in.
+// Redeem-code access flips users.has_free_access — a SEPARATE flag from
+// is_owner. An earlier version of this flipped is_owner itself, which also
+// doubles as "real app owner" everywhere else (the Admin nav tab, /admin,
+// requireOwner() below) — meaning anyone who redeemed a code silently got
+// full admin access too. has_free_access only ever feeds into hasAccess
+// (src/lib/access.ts), never into isOwner. No requireActiveAccess here —
+// this is the mechanism for GETTING access in the first place, so it only
+// needs you to be logged in.
+const UNIQUE_VIOLATION = "23505";
+
+function isUniqueViolation(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === UNIQUE_VIOLATION;
+}
+
 export async function redeemCode(code: string): Promise<ActionResult> {
   const userId = await getUserId();
   const client = db();
@@ -19,15 +28,31 @@ export async function redeemCode(code: string): Promise<ActionResult> {
   const [existingRedemption] = await client.sql<{ id: number }>`SELECT id FROM redeem_code_redemptions WHERE user_id = ${userId}`;
   if (existingRedemption) return fail("Du har allerede indløst en kode på denne konto.");
 
-  const [codeRow] = await client.sql<{ id: number; max_uses: number; use_count: number }>`
-    SELECT id, max_uses, use_count FROM redeem_codes WHERE code = ${trimmed}
-  `;
+  const [codeRow] = await client.sql<{ id: number }>`SELECT id FROM redeem_codes WHERE code = ${trimmed}`;
   if (!codeRow) return fail("Ugyldig kode.");
-  if (codeRow.use_count >= codeRow.max_uses) return fail("Koden er desværre brugt op.");
 
-  await client.sql`UPDATE redeem_codes SET use_count = use_count + 1 WHERE id = ${codeRow.id}`;
-  await client.sql`INSERT INTO redeem_code_redemptions (code_id, user_id) VALUES (${codeRow.id}, ${userId})`;
-  await client.sql`UPDATE users SET is_owner = true WHERE id = ${userId}`;
+  // Atomic claim: Postgres evaluates "use_count < max_uses" against the
+  // row's CURRENT state at the moment the UPDATE actually commits, so two
+  // concurrent redemptions of a code with exactly one use left can never
+  // both succeed — only one ever sees the condition true. The earlier
+  // read-then-compare version let both pass the check before either wrote,
+  // letting a single-use invite code grant free access twice.
+  const claimed = await client.sql<{ id: number }>`
+    UPDATE redeem_codes SET use_count = use_count + 1
+    WHERE id = ${codeRow.id} AND use_count < max_uses
+    RETURNING id
+  `;
+  if (claimed.length === 0) return fail("Koden er desværre brugt op.");
+
+  try {
+    await client.sql`INSERT INTO redeem_code_redemptions (code_id, user_id) VALUES (${codeRow.id}, ${userId})`;
+  } catch (e) {
+    // Same user double-submitted concurrently — the UNIQUE constraint on
+    // user_id means this account's access is granted exactly once either
+    // way, so there's nothing left to do here.
+    if (!isUniqueViolation(e)) throw e;
+  }
+  await client.sql`UPDATE users SET has_free_access = true WHERE id = ${userId}`;
 
   revalidatePath("/");
   revalidatePath("/abonnement");
@@ -81,23 +106,27 @@ export async function deleteRedeemCode(id: number): Promise<void> {
 
 export type AdminStats = {
   totalUsers: number;
-  activeAccess: number; // owner eller aktivt abonnement
-  paidSubscribers: number; // aktivt abonnement, ikke ejer
+  activeAccess: number; // ejer, gratis kode eller aktivt abonnement
+  paidSubscribers: number; // aktivt abonnement, ikke ejer/gratis
+  freeAccess: number; // adgang via indløst kode
 };
 
 export async function getAdminStats(): Promise<AdminStats> {
   const userId = await getUserId();
   const client = db();
   await requireOwner(userId, client);
-  const [[{ count: totalUsers }], [{ count: paidSubscribers }], [{ count: ownerCount }]] = await Promise.all([
-    client.sql<{ count: string }>`SELECT count(*)::text as count FROM users`,
-    client.sql<{ count: string }>`SELECT count(*)::text as count FROM subscriptions WHERE status = 'active'`,
-    client.sql<{ count: string }>`SELECT count(*)::text as count FROM users WHERE is_owner = true`,
-  ]);
+  const [[{ count: totalUsers }], [{ count: paidSubscribers }], [{ count: ownerCount }], [{ count: freeAccessCount }]] =
+    await Promise.all([
+      client.sql<{ count: string }>`SELECT count(*)::text as count FROM users`,
+      client.sql<{ count: string }>`SELECT count(*)::text as count FROM subscriptions WHERE status = 'active'`,
+      client.sql<{ count: string }>`SELECT count(*)::text as count FROM users WHERE is_owner = true`,
+      client.sql<{ count: string }>`SELECT count(*)::text as count FROM users WHERE has_free_access = true`,
+    ]);
   return {
     totalUsers: Number(totalUsers),
     paidSubscribers: Number(paidSubscribers),
-    activeAccess: Number(paidSubscribers) + Number(ownerCount),
+    freeAccess: Number(freeAccessCount),
+    activeAccess: Number(paidSubscribers) + Number(ownerCount) + Number(freeAccessCount),
   };
 }
 
