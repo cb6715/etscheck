@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowLeft, Sparkles, Upload, FileText, CalendarDays, Clock3, Check } from "lucide-react";
-import { Card, Field, inputClass, Button } from "@/components/ui/primitives";
+import { ArrowRight, ArrowLeft, Sparkles, Upload, FileText, CalendarDays, Clock3, Check, MapPin, SkipForward, Crosshair } from "lucide-react";
+import { Card, Field, inputClass, Button, Badge } from "@/components/ui/primitives";
 import { signUp, type TrackingMode } from "@/lib/actions";
 import { uploadContract } from "@/lib/contracts";
+import { createWorkplace } from "@/lib/workplace-actions";
+import { getCurrentPosition } from "@/lib/geolocation";
 
 function dateToInputValue(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -21,7 +23,7 @@ function lastOfMonth(): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
-const STEPS = ["Konto", "Løn", "Skat & pause", "Kontrakt", "Vagtregistrering"];
+const STEPS = ["Konto", "Kontrakt", "Løn", "Skat & pause", "Arbejdssted", "Vagtregistrering"];
 
 function ChoiceCard({
   active,
@@ -86,9 +88,31 @@ export function OnboardingWizard() {
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [trackingMode, setTrackingModeState] = useState<TrackingMode | null>(null);
 
+  const [wantsWorkplace, setWantsWorkplace] = useState<boolean | null>(null);
+  const [workplaceName, setWorkplaceName] = useState("");
+  const [workplaceRadius, setWorkplaceRadius] = useState("150");
+  const [workplaceCoords, setWorkplaceCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locatingWorkplace, setLocatingWorkplace] = useState(false);
+
   function timeToMinutes(time: string): number {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
+  }
+
+  async function useMyLocationForWorkplace() {
+    setLocatingWorkplace(true);
+    setError("");
+    const result = await getCurrentPosition();
+    setLocatingWorkplace(false);
+    if (result.status === "ok") {
+      setWorkplaceCoords({ lat: result.lat, lng: result.lng });
+    } else if (result.status === "denied") {
+      setError("Du har ikke givet adgang til din placering — slå det til under browserens site-indstillinger.");
+    } else if (result.status === "unsupported") {
+      setError("Din browser understøtter ikke geolocation.");
+    } else {
+      setError("Kunne ikke finde din placering: " + result.message);
+    }
   }
 
   function next() {
@@ -102,13 +126,19 @@ export function OnboardingWizard() {
         return;
       }
     }
-    if (step === 3 && wantsContractUpload === null) {
+    if (step === 1 && wantsContractUpload === null) {
       setError("Vælg om du vil uploade din kontrakt, eller springe det over.");
       return;
     }
-    if (step === 4 && trackingMode === null) {
-      setError("Vælg hvordan du vil registrere dine timer.");
-      return;
+    if (step === 4) {
+      if (wantsWorkplace === null) {
+        setError("Vælg om du vil tilføje et arbejdssted nu, eller springe det over.");
+        return;
+      }
+      if (wantsWorkplace && !workplaceName.trim()) {
+        setError("Giv arbejdsstedet et navn, eller vælg at springe over.");
+        return;
+      }
     }
     setError("");
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
@@ -148,14 +178,34 @@ export function OnboardingWizard() {
         return;
       }
 
-      // The account now exists and the session cookie is set, so an
-      // optional contract upload can run as its own authenticated action
-      // right after — failing it never blocks account creation, since the
-      // wage terms above are already saved either way.
+      // The account now exists and the session cookie is set, so these
+      // optional steps can run as their own authenticated actions right
+      // after — each wrapped on its own, so neither blocks account
+      // creation or the other: the wage terms and tracking-mode choice
+      // above are already saved either way, and a failed upload/workplace
+      // save just means redoing that one step later from Indstillinger/
+      // Arbejdssteder, not losing anything else from the wizard.
       if (contractFile) {
-        const formData = new FormData();
-        formData.append("file", contractFile);
-        await uploadContract(formData);
+        try {
+          const formData = new FormData();
+          formData.append("file", contractFile);
+          await uploadContract(formData);
+        } catch (e) {
+          console.error("Contract upload during onboarding failed:", e);
+        }
+      }
+
+      if (wantsWorkplace && workplaceName.trim()) {
+        try {
+          await createWorkplace({
+            name: workplaceName.trim(),
+            lat: workplaceCoords?.lat,
+            lng: workplaceCoords?.lng,
+            radiusMeters: Number(workplaceRadius) || 150,
+          });
+        } catch (e) {
+          console.error("Workplace creation during onboarding failed:", e);
+        }
       }
 
       router.push("/");
@@ -212,6 +262,38 @@ export function OnboardingWizard() {
         )}
 
         {step === 1 && (
+          <div className="space-y-3">
+            <ChoiceCard
+              active={wantsContractUpload === true}
+              onClick={() => setWantsContractUpload(true)}
+              icon={Upload}
+              title="Upload min ansættelseskontrakt"
+              description="Gemmes sikkert og privat. Ingen automatisk AI-læsning er sat op endnu, så du skal stadig selv indtaste lønvilkårene i de næste trin — uploadet er et bekvemt sted at have kontrakten liggende, ikke en genvej."
+            />
+            <ChoiceCard
+              active={wantsContractUpload === false}
+              onClick={() => {
+                setWantsContractUpload(false);
+                setContractFile(null);
+              }}
+              icon={FileText}
+              title="Spring over — jeg indtaster selv lønvilkårene"
+              description="Du kan altid uploade kontrakten senere under Indstillinger."
+            />
+            {wantsContractUpload && (
+              <Field label="Vælg fil (PDF, PNG eller JPG, maks 10 MB)">
+                <input
+                  className={inputClass}
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg"
+                  onChange={(e) => setContractFile(e.target.files?.[0] ?? null)}
+                />
+              </Field>
+            )}
+          </div>
+        )}
+
+        {step === 2 && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Grundløn (kr/time)">
               <input className={inputClass} type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
@@ -238,12 +320,12 @@ export function OnboardingWizard() {
               <input className={inputClass} type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)} />
             </Field>
             <p className="col-span-full text-xs text-[var(--muted)]">
-              Kender du ikke tillæggene udenad? Lad dem stå på 0 — du kan rette dem senere under Indstillinger, også hvis du uploader din kontrakt i næste trin.
+              Kender du ikke tillæggene udenad? Lad dem stå på 0 — du kan rette dem senere under Indstillinger, også hvis du uploadede din kontrakt i forrige trin.
             </p>
           </div>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Skattefradrag (kr/periode)">
               <input className={inputClass} type="number" value={monthlyTaxDeduction} onChange={(e) => setMonthlyTaxDeduction(e.target.value)} />
@@ -263,39 +345,45 @@ export function OnboardingWizard() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div className="space-y-3">
             <ChoiceCard
-              active={wantsContractUpload === true}
-              onClick={() => setWantsContractUpload(true)}
-              icon={Upload}
-              title="Upload min ansættelseskontrakt"
-              description="Gemmes sikkert og privat. Ingen automatisk AI-læsning er sat op endnu, så du skal stadig selv have indtastet lønvilkårene i de foregående trin — uploadet er et bekvemt sted at have kontrakten liggende, ikke en genvej."
+              active={wantsWorkplace === true}
+              onClick={() => setWantsWorkplace(true)}
+              icon={MapPin}
+              title="Tilføj mit arbejdssted"
+              description="Lader dig senere trykke en knap og se om du er tæt på arbejdsstedet lige nu. Det er IKKE automatisk tjek-ind, og det holder ikke øje med dig i baggrunden — ingen webapp kan det, mens telefonen er låst eller appen lukket. Du trykker selv, mens appen er åben."
             />
             <ChoiceCard
-              active={wantsContractUpload === false}
-              onClick={() => {
-                setWantsContractUpload(false);
-                setContractFile(null);
-              }}
-              icon={FileText}
-              title="Spring over — jeg har allerede indtastet det selv"
-              description="Du kan altid uploade kontrakten senere under Indstillinger."
+              active={wantsWorkplace === false}
+              onClick={() => setWantsWorkplace(false)}
+              icon={SkipForward}
+              title="Spring over — jeg gør det senere"
+              description="Du kan altid tilføje arbejdssteder under Arbejdssteder i menuen."
             />
-            {wantsContractUpload && (
-              <Field label="Vælg fil (PDF, PNG eller JPG, maks 10 MB)">
-                <input
-                  className={inputClass}
-                  type="file"
-                  accept="application/pdf,image/png,image/jpeg"
-                  onChange={(e) => setContractFile(e.target.files?.[0] ?? null)}
-                />
-              </Field>
+            {wantsWorkplace && (
+              <div className="space-y-3">
+                <Field label="Navn" required>
+                  <input className={inputClass} value={workplaceName} onChange={(e) => setWorkplaceName(e.target.value)} placeholder="f.eks. Butikken" />
+                </Field>
+                <Field label="Radius for 'du er her' (meter)">
+                  <input className={inputClass} type="number" value={workplaceRadius} onChange={(e) => setWorkplaceRadius(e.target.value)} />
+                </Field>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" onClick={useMyLocationForWorkplace} disabled={locatingWorkplace} className="flex items-center gap-2">
+                    <Crosshair size={16} /> {locatingWorkplace ? "Finder..." : "Brug min nuværende placering"}
+                  </Button>
+                  {workplaceCoords && <Badge tone="success">Placering gemt</Badge>}
+                </div>
+                <p className="text-xs text-[var(--muted)]">
+                  Stå på arbejdsstedet, når du trykker knappen — der er ikke sat en adresse-opslagstjeneste op, så placeringen kommer fra GPS&apos;en i din telefon lige nu, ikke fra et skrevet navn.
+                </p>
+              </div>
             )}
           </div>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="space-y-3">
             <ChoiceCard
               active={trackingMode === "daily"}

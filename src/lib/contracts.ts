@@ -50,10 +50,15 @@ export async function getContracts(): Promise<ContractRow[]> {
 }
 
 /** Uploads one contract file. Validates type/size BEFORE anything touches
- * storage or the DB — a rejected file never gets a blob key or a row. */
+ * storage or the DB — a rejected file never gets a blob key or a row.
+ *
+ * No requireActiveAccess — this is also called from the onboarding
+ * wizard, right after signUp(), before a brand-new (non-owner) account has
+ * any subscription at all. Account SETUP stays free; actually USING any of
+ * it still requires reaching a page behind requirePageAccess, which is
+ * where the real paywall lives. */
 export async function uploadContract(formData: FormData): Promise<ActionResult<{ id: number }>> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
 
   const file = formData.get("file");
   if (!(file instanceof File)) return fail("Ingen fil valgt.");

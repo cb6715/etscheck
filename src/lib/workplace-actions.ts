@@ -38,9 +38,15 @@ export type CreateWorkplaceInput = {
   radiusMeters?: number;
 };
 
+// No requireActiveAccess here, unlike every other action in this file —
+// this is also called from the onboarding wizard, right after signUp(),
+// before a brand-new (non-owner) account has any subscription at all. A
+// gate that always throws for the exact moment it's meant to run isn't a
+// gate, it's a guaranteed failure; account SETUP (this, uploadContract)
+// stays free, while actually USING any of it still requires reaching a
+// page behind requirePageAccess, which is where the real paywall lives.
 export async function createWorkplace(input: CreateWorkplaceInput): Promise<ActionResult<{ id: number }>> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
   const name = input.name.trim();
   if (!name) return fail("Arbejdsstedet skal have et navn.");
   if (input.lat !== undefined && (input.lat < -90 || input.lat > 90)) return fail("Ugyldig breddegrad.");
