@@ -110,6 +110,48 @@ describe("computeIntervalEarnings — shift crossing midnight", () => {
   });
 });
 
+describe("computeIntervalEarnings — weekend/helligdag tillæg", () => {
+  const withSupplements: WageConfig = { ...config, weekendSupplement: 30, holidaySupplement: 50 };
+
+  it("adds no weekend tillæg to a plain weekday shift", () => {
+    // 2026-10-14 is a Wednesday.
+    const start = dk(2026, 10, 14, 8, 0);
+    const end = dk(2026, 10, 14, 10, 0); // 2h, no break inside
+    const { grossAmount } = computeIntervalEarnings(start, end, 0, 100, withSupplements);
+    expect(grossAmount).toBeCloseTo(2 * 150, 2);
+  });
+
+  it("adds the weekend tillæg to a shift entirely on a Saturday", () => {
+    // 2026-10-17 is a Saturday.
+    const start = dk(2026, 10, 17, 8, 0);
+    const end = dk(2026, 10, 17, 10, 0);
+    const { grossAmount } = computeIntervalEarnings(start, end, 0, 100, withSupplements);
+    expect(grossAmount).toBeCloseTo(2 * (150 + 30), 2);
+  });
+
+  it("splits a shift crossing from Friday into Saturday at midnight into weekday/weekend segments", () => {
+    // 2026-10-16 22:00 (Friday) -> 2026-10-17 06:00 (Saturday).
+    const start = dk(2026, 10, 16, 22, 0);
+    const end = dk(2026, 10, 17, 6, 0);
+    const { paidSeconds, grossAmount } = computeIntervalEarnings(start, end, 0, 100, withSupplements);
+    expect(paidSeconds).toBeCloseTo(8 * 3600, 0);
+    // Both halves also fall in the night window (18:00-06:00), so night
+    // tillæg applies throughout regardless of weekend status.
+    const fridayNightRate = 150 + config.nightSupplement;
+    const saturdayNightRate = 150 + config.nightSupplement + 30;
+    const expectedGross = 2 * fridayNightRate + 6 * saturdayNightRate;
+    expect(grossAmount).toBeCloseTo(expectedGross, 2);
+  });
+
+  it("applies the holiday tillæg instead of the weekend tillæg when a helligdag falls on a weekend", () => {
+    // 2027-12-25 (juledag) is a Saturday.
+    const start = dk(2027, 12, 25, 8, 0);
+    const end = dk(2027, 12, 25, 10, 0);
+    const { grossAmount } = computeIntervalEarnings(start, end, 0, 100, withSupplements);
+    expect(grossAmount).toBeCloseTo(2 * (150 + 50), 2);
+  });
+});
+
 describe("weeklyOvertimeThresholdHours", () => {
   it("is the full threshold at a configured 5+ day work week", () => {
     expect(weeklyOvertimeThresholdHours({ ...config, workDaysPerWeek: 5 })).toBe(37);

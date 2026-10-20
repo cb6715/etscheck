@@ -1,0 +1,2 @@
+ALTER TABLE wage_settings ADD COLUMN weekend_supplement DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wage_settings ADD COLUMN holiday_supplement DOUBLE PRECISION NOT NULL DEFAULT 0;

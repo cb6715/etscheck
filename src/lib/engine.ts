@@ -17,6 +17,15 @@ export type WageConfig = {
   nightSupplement: number;
   nightStartHour: number;
   nightEndHour: number;
+  /** kr/time tillæg for timer på lørdag/søndag, der ikke falder på en dansk
+   * helligdag (helligdagstillægget har forrang — se holidaySupplement).
+   * Default 0: ikke alle kontrakter har et weekendtillæg. */
+  weekendSupplement: number;
+  /** kr/time tillæg for timer på en dansk helligdag (nytårsdag, skærtorsdag,
+   * langfredag, påske, Kristi himmelfartsdag, pinse, juledagene) — tager
+   * forrang over weekendSupplement, hvis en helligdag falder i en weekend.
+   * Default 0: skal sættes efter den faktiske kontrakt. */
+  holidaySupplement: number;
   breakStartMinutes: number;
   breakEndMinutes: number;
   monthlyTaxDeduction: number;
@@ -57,6 +66,8 @@ export const DEFAULT_WAGE_CONFIG: WageConfig = {
   nightSupplement: 25,
   nightStartHour: 17,
   nightEndHour: 5,
+  weekendSupplement: 0,
+  holidaySupplement: 0,
   breakStartMinutes: 12 * 60,
   breakEndMinutes: 12 * 60 + 30,
   monthlyTaxDeduction: 5100,
@@ -101,15 +112,22 @@ export function lastWeekdayOfMonth(date: Date): Date {
 }
 
 /**
- * Every clock-time boundary (break start/end, night start/end) that falls
- * strictly inside (start, end), across every calendar day the interval
- * spans — plus start/end themselves. Splitting on these first means every
- * resulting chunk has a single, unambiguous break/night status throughout.
+ * Every clock-time boundary (break start/end, night start/end, midnight)
+ * that falls strictly inside (start, end), across every calendar day the
+ * interval spans — plus start/end themselves. Splitting on these first means
+ * every resulting chunk has a single, unambiguous break/night/day-type
+ * status throughout. The midnight marker (minute 0) specifically exists so
+ * weekend/helligdag tillæg (see dayTypeSupplementFor) can be computed from a
+ * segment's midpoint — unlike night status, day-type depends on the calendar
+ * day, so a shift straddling e.g. Friday→Saturday midnight needs an explicit
+ * split there, or the midpoint of one combined chunk would wrongly pick a
+ * single day's status for the whole thing.
  */
 function collectBoundaries(start: Date, end: Date, config: WageConfig): Date[] {
   const times = new Set<number>([start.getTime(), end.getTime()]);
   let dayCursor = startOfLocalDay(start);
   const markers = [
+    0,
     config.nightEndHour * 60,
     config.breakStartMinutes,
     config.breakEndMinutes,
@@ -138,6 +156,70 @@ function isBreakMoment(date: Date, config: WageConfig): boolean {
 function isNightMoment(date: Date, config: WageConfig): boolean {
   const { hour } = zonedParts(date);
   return hour >= config.nightStartHour || hour < config.nightEndHour;
+}
+
+/** Easter Sunday (Gregorian) for a given year, via the Anonymous Gregorian
+ * algorithm (Meeus/Jones/Butcher) — several Danish helligdage are counted
+ * relative to it (skærtorsdag, langfredag, 2. påskedag, Kristi himmelfarts-
+ * dag, pinse). */
+function easterSunday(year: number): { month: number; day: number } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
+/** The Danish helligdage commonly carrying a lønoverenskomst-tillæg, for a
+ * given year, as "YYYY-MM-DD" keys. This is a best-effort list for TILLÆG
+ * purposes — it only affects anything once holidaySupplement is actually
+ * configured away from its 0-kr default, same estimat caveat as the rest
+ * of this engine. Deliberately excludes Store Bededag, abolished as a
+ * public holiday from 2024 — some overenskomster may still pay a tillæg
+ * for it, in which case log it as a manual sick/adjustment entry instead. */
+function danishPublicHolidays(year: number): Set<string> {
+  const { month: em, day: ed } = easterSunday(year);
+  const easter = new Date(Date.UTC(year, em - 1, ed));
+  const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
+  const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return new Set(
+    [
+      new Date(Date.UTC(year, 0, 1)), // Nytårsdag
+      addDays(easter, -3), // Skærtorsdag
+      addDays(easter, -2), // Langfredag
+      easter, // Påskedag
+      addDays(easter, 1), // 2. påskedag
+      addDays(easter, 39), // Kristi himmelfartsdag
+      addDays(easter, 49), // Pinsedag
+      addDays(easter, 50), // 2. pinsedag
+      new Date(Date.UTC(year, 11, 25)), // Juledag
+      new Date(Date.UTC(year, 11, 26)), // 2. juledag
+    ].map(key)
+  );
+}
+
+function isDanishHoliday(date: Date): boolean {
+  const { year, month, day } = zonedParts(date);
+  return danishPublicHolidays(year).has(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+}
+
+/** kr/time tillæg for `date`'s Danish calendar day: helligdagstillæg takes
+ * precedence over weekendtillæg if a holiday falls on a Saturday/Sunday. */
+function dayTypeSupplementFor(date: Date, config: WageConfig): number {
+  if (isDanishHoliday(date)) return config.holidaySupplement;
+  const weekday = copenhagenWeekday(date);
+  if (weekday === 0 || weekday === 6) return config.weekendSupplement;
+  return 0;
 }
 
 export type IntervalEarnings = {
@@ -230,10 +312,11 @@ export function computeIntervalEarnings(
   let paidSeconds = 0;
   let grossAmount = 0;
 
-  const addSegment = (durationSeconds: number, isNight: boolean, isOvertime: boolean) => {
+  const addSegment = (durationSeconds: number, isNight: boolean, isOvertime: boolean, daySupplement: number) => {
     const rate =
       config.hourlyRate * (isOvertime ? 1 + config.overtimeBonusPct : 1) +
-      (isNight ? config.nightSupplement : 0);
+      (isNight ? config.nightSupplement : 0) +
+      daySupplement;
     grossAmount += (rate / 3600) * durationSeconds;
     paidSeconds += durationSeconds;
   };
@@ -251,16 +334,20 @@ export function computeIntervalEarnings(
     }
 
     const isNight = isNightMoment(midpoint, config);
+    // Safe to read off this one segment's midpoint: the midnight boundary
+    // marker in collectBoundaries guarantees no segment straddles two
+    // calendar days, so "this chunk's day type" is always unambiguous.
+    const daySupplement = dayTypeSupplementFor(midpoint, config);
     let remaining = durationSeconds;
 
     if (cumulativeElapsedSeconds < thresholdSeconds) {
       const normalPart = Math.min(remaining, thresholdSeconds - cumulativeElapsedSeconds);
-      addSegment(normalPart, isNight, false);
+      addSegment(normalPart, isNight, false, daySupplement);
       cumulativeElapsedSeconds += normalPart;
       remaining -= normalPart;
     }
     if (remaining > 0) {
-      addSegment(remaining, isNight, true);
+      addSegment(remaining, isNight, true, daySupplement);
       cumulativeElapsedSeconds += remaining;
     }
   }

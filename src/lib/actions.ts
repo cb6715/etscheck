@@ -36,6 +36,8 @@ type WageSettingsRow = {
   night_supplement: number;
   night_start_hour: number;
   night_end_hour: number;
+  weekend_supplement: number;
+  holiday_supplement: number;
   break_start_minutes: number;
   break_end_minutes: number;
   monthly_tax_deduction: number;
@@ -57,6 +59,8 @@ function toConfig(row: WageSettingsRow): WageConfig {
     nightSupplement: row.night_supplement,
     nightStartHour: row.night_start_hour,
     nightEndHour: row.night_end_hour,
+    weekendSupplement: row.weekend_supplement,
+    holidaySupplement: row.holiday_supplement,
     breakStartMinutes: row.break_start_minutes,
     breakEndMinutes: row.break_end_minutes,
     monthlyTaxDeduction: row.monthly_tax_deduction,
@@ -200,6 +204,8 @@ const COLUMN_BY_FIELD: Record<keyof WageConfig, string> = {
   nightSupplement: "night_supplement",
   nightStartHour: "night_start_hour",
   nightEndHour: "night_end_hour",
+  weekendSupplement: "weekend_supplement",
+  holidaySupplement: "holiday_supplement",
   breakStartMinutes: "break_start_minutes",
   breakEndMinutes: "break_end_minutes",
   monthlyTaxDeduction: "monthly_tax_deduction",
