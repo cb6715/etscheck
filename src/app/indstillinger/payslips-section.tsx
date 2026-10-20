@@ -64,9 +64,9 @@ function ReviewForm({ payslip, onDone }: { payslip: PayslipRow; onDone: () => vo
         </p>
       ) : (
         <p className="text-xs text-[var(--muted)]">
-          {payslip.extraction_status === "ai_unavailable"
-            ? "Automatisk læsning er ikke tilgængelig lige nu — indtast tallene selv."
-            : "Kunne ikke læse lønsedlen automatisk — indtast tallene selv."}
+          {payslip.extraction_status === "unsupported_format"
+            ? "Automatisk læsning virker kun for PDF'er — for et billede skal du selv indtaste tallene."
+            : "Kunne ikke finde tallene automatisk på denne lønseddel — indtast dem selv."}
         </p>
       )}
       <div className="grid grid-cols-2 gap-2">
@@ -141,9 +141,9 @@ export function PayslipsSection({ initialPayslips }: { initialPayslips: PayslipR
       </h2>
       <p className="flex items-start gap-2 text-xs text-[var(--muted)]">
         <Info size={14} className="mt-0.5 shrink-0" />
-        Upload en lønseddel, og vi forsøger at læse skatteprocent, AM-bidrag, fradrag, ATP og timeløn direkte fra den.
-        Du ser altid tallene og kan rette dem, før de bruges — intet ændres i dine lønindstillinger, før du trykker
-        &quot;Brug disse tal&quot;.
+        Upload en lønseddel som PDF, og vi forsøger at læse skatteprocent, AM-bidrag, fradrag, ATP og timeløn direkte
+        fra den. Du ser altid tallene og kan rette dem, før de bruges — intet ændres i dine lønindstillinger, før du
+        trykker &quot;Brug disse tal&quot;.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input ref={fileInputRef} type="file" accept="application/pdf,image/png,image/jpeg" className="text-sm" />

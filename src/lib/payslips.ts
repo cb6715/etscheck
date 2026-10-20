@@ -1,53 +1,42 @@
 "use server";
 
-// Lønseddel (payslip) upload with GENUINE field extraction — unlike
-// contracts.ts, which explicitly can't do this (no AI key configured when
-// that was built). This app runs on Netlify, so the AI Gateway injects
-// real Anthropic credentials at RUNTIME with no API key of our own to
-// configure — see ai-gateway().
+// Lønseddel (payslip) upload with field extraction done by PLAIN CODE —
+// no AI/LLM call. A PDF's text layer is pulled out with pdf-parse (pure
+// JS, wraps Mozilla's pdf.js, no native deps — runs fine in a Netlify
+// Function), then parsed with fixed regex patterns calibrated against a
+// real Danløn-format payslip (Tekst/Grundlag/Sats/Udbetalt/Trukket table,
+// monthly fradrag embedded in the A-skat row's own label text). A PDF from
+// a different payroll system, or a photographed/scanned payslip with no
+// text layer, simply won't match these patterns — extraction then yields
+// nulls rather than a fabricated guess, same honest fallback contracts.ts
+// already uses for its permanently-unavailable state.
 //
 // File bytes live in a private Netlify Blobs store ("payslips"), same
 // pattern as contracts: never a public URL, never the Postgres database,
 // only ever read back by server code after an ownership check.
 //
-// Per this app's no-faking rule: the model is explicitly told to return
-// null for anything it can't actually read off the page, never to guess
-// or estimate a number that isn't printed there. Every extracted field is
-// shown to the user as an editable draft before anything is applied to
-// their real wage settings — confirmPayslipFields is the only thing that
-// writes to wage_settings, and only with whatever the user actually
-// confirmed on screen.
+// Every extracted field is shown to the user as an editable draft before
+// anything is applied to their real wage settings — confirmPayslipFields
+// is the only thing that writes to wage_settings, and only with whatever
+// the user actually confirmed on screen.
 
-import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "crypto";
 import { getStore } from "@netlify/blobs";
+import { PDFParse } from "pdf-parse";
 import { db } from "@/lib/db";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { getUserId, updateWageSettings } from "@/lib/actions";
 import type { WageConfig } from "@/lib/engine";
+import { parsePayslipText, type ExtractedPayslipFields } from "@/lib/payslip-parser";
+
+export type { ExtractedPayslipFields } from "@/lib/payslip-parser";
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]);
 
 function payslipsStore() {
   return getStore("payslips");
-}
-
-let aiClient: Anthropic | null = null;
-
-// The gateway only activates once a project has at least one production
-// deploy and isn't guaranteed to inject credentials in every environment
-// (e.g. plain `next dev` without `netlify dev`) — checked at call time,
-// never assumed, so a missing key degrades to the honest
-// 'ai_unavailable' status instead of throwing.
-function aiGatewayAvailable(): boolean {
-  return Boolean(process.env.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_API_KEY);
-}
-
-function ai(): Anthropic {
-  if (!aiClient) aiClient = new Anthropic();
-  return aiClient;
 }
 
 export type PayslipRow = {
@@ -61,17 +50,6 @@ export type PayslipRow = {
   created_at: Date;
 };
 
-export type ExtractedPayslipFields = {
-  taxRatePct: number | null;
-  amBidragPct: number | null;
-  monthlyTaxDeduction: number | null;
-  atpRatePerHour: number | null;
-  hourlyRate: number | null;
-  grossAmount: number | null;
-  netAmount: number | null;
-  notes: string | null;
-};
-
 export async function getPayslips(): Promise<PayslipRow[]> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
@@ -81,10 +59,10 @@ export async function getPayslips(): Promise<PayslipRow[]> {
   `;
 }
 
-/** Uploads one payslip and immediately attempts real extraction — unlike
- * contracts.ts's upload, which never tries. Validates type/size BEFORE
- * anything touches storage or the DB; extraction failures never block the
- * upload itself (the file is always saved even if reading it fails). */
+/** Uploads one payslip and immediately attempts extraction (PDFs only —
+ * see parsePayslipText). Validates type/size BEFORE anything touches
+ * storage or the DB; extraction failures never block the upload itself
+ * (the file is always saved even if reading it fails). */
 export async function uploadPayslip(formData: FormData): Promise<ActionResult<{ id: number }>> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
@@ -107,39 +85,17 @@ export async function uploadPayslip(formData: FormData): Promise<ActionResult<{ 
     RETURNING id
   `;
 
-  await extractPayslipFields(row.id, Buffer.from(bytes).toString("base64"), file.type);
+  await extractPayslipFields(row.id, bytes, file.type);
   return ok({ id: row.id });
 }
 
-const EXTRACTION_PROMPT = `Du ser et billede eller en PDF af en dansk lønseddel. Find PRÆCIS de tal, der faktisk står skrevet på siden — gæt eller beregn ALDRIG et tal, der ikke direkte kan læses eller er en simpel sum/division af tal, der står der.
-
-Mange danske lønsedler (fx Danløn) bruger en tabel med kolonnerne Tekst / Grundlag / Sats / Udbetalt / Trukket. Kig specifikt efter:
-- En række "A-skat" (evt. "A-skat (Fradrag: X,XX)") — Sats-kolonnen her er typisk skatteprocenten (fx "44%"), og tallet i parentesen efter "Fradrag:" i selve rækketeksten er det månedlige skattefradrag.
-- En række "AM-bidrag" — Sats-kolonnen her er typisk AM-bidrag i procent (fx "8%").
-- En række "ATP af løn" eller "ATP" — Trukket-kolonnen er ATP-beløbet i kr for perioden. Divider det med det samlede antal arbejdstimer i perioden for at få kr/time — timetallet kan stå som Grundlag på samme række, eller som "Timer" i et saldo-/periodeafsnit nederst på siden.
-- En række "Timeløn" — Sats-kolonnen her er timelønnen i kr/time.
-- "Til udbetaling" er nettobeløbet.
-
-Disse mønstre er almindelige, men ikke universelle — stol altid på det, der faktisk står på netop denne lønseddel, og brug IKKE disse eksempler som tal.
-
-Svar med ren JSON (ingen markdown, ingen forklaring udenom), med nøjagtigt disse felter:
-{
-  "taxRatePct": tal eller null — skatteprocenten/trækprocenten, som et tal mellem 0 og 100 (fx 44 for "44%"). Kun hvis den står eksplicit angivet.
-  "amBidragPct": tal eller null — AM-bidrag i procent (typisk 8). Kun hvis angivet.
-  "monthlyTaxDeduction": tal eller null — det månedlige skattefradrag i kr, hvis det står angivet (ofte i parentes efter "Fradrag:" på A-skat-rækken).
-  "atpRatePerHour": tal eller null — KUN hvis både et ATP-bidrag i kr for perioden OG antal arbejdstimer i samme periode står angivet på siden; beregn da ATP-kr divideret med timer. Ellers null.
-  "hourlyRate": tal eller null — timeløn i kr/time, hvis angivet.
-  "grossAmount": tal eller null — bruttoløn for perioden, hvis angivet.
-  "netAmount": tal eller null — nettoløn (udbetalt beløb, "Til udbetaling") for perioden, hvis angivet.
-  "notes": tekst eller null — én kort sætning på dansk, hvis noget er værd at bemærke (fx "ATP beregnet fra 99 kr / 153,5 timer"), ellers null.
-}`;
-
 /** Called right after upload, and re-callable to retry a failed
- * extraction. Never throws outward on a model/parsing failure — degrades
- * to 'extraction_failed' so the UI falls back to manual entry, same as
- * contracts.ts's permanent 'ai_unavailable' state, just per-attempt here
- * instead of permanent. */
-export async function extractPayslipFields(id: number, base64?: string, contentType?: string): Promise<void> {
+ * extraction. Never throws outward on a parsing failure — degrades to
+ * 'extraction_failed' (or 'unsupported_format' for a non-PDF, since plain
+ * code can't read text out of a photo) so the UI falls back to manual
+ * entry, same pattern contracts.ts already uses for its permanently-
+ * unavailable state. */
+export async function extractPayslipFields(id: number, bytes?: ArrayBuffer, contentType?: string): Promise<void> {
   // Ownership-checked even though this is almost always called right
   // after uploadPayslip's own check — it's also reachable directly as a
   // public RPC (every export from a "use server" file is), and an id
@@ -149,57 +105,38 @@ export async function extractPayslipFields(id: number, base64?: string, contentT
   const [owned] = await db().sql<{ id: number }>`SELECT id FROM payslips WHERE id = ${id} AND user_id = ${userId}`;
   if (!owned) return;
 
-  if (!aiGatewayAvailable()) {
-    await db().sql`UPDATE payslips SET extraction_status = 'ai_unavailable' WHERE id = ${id} AND user_id = ${userId}`;
+  let data = bytes;
+  let mediaType = contentType;
+  if (!data || !mediaType) {
+    const [row] = await db().sql<{ blob_key: string; content_type: string }>`
+      SELECT blob_key, content_type FROM payslips WHERE id = ${id} AND user_id = ${userId}
+    `;
+    if (!row) return;
+    const stored = await payslipsStore().get(row.blob_key, { type: "arrayBuffer" });
+    if (!stored) {
+      await db().sql`UPDATE payslips SET extraction_status = 'extraction_failed' WHERE id = ${id} AND user_id = ${userId}`;
+      return;
+    }
+    data = stored;
+    mediaType = row.content_type;
+  }
+
+  if (mediaType !== "application/pdf") {
+    await db().sql`UPDATE payslips SET extraction_status = 'unsupported_format' WHERE id = ${id} AND user_id = ${userId}`;
     return;
   }
 
+  let parser: PDFParse | null = null;
   try {
-    let data = base64;
-    let mediaType = contentType;
-    if (!data || !mediaType) {
-      const [row] = await db().sql<{ blob_key: string; content_type: string }>`
-        SELECT blob_key, content_type FROM payslips WHERE id = ${id} AND user_id = ${userId}
-      `;
-      if (!row) return;
-      const bytes = await payslipsStore().get(row.blob_key, { type: "arrayBuffer" });
-      if (!bytes) {
-        await db().sql`UPDATE payslips SET extraction_status = 'extraction_failed' WHERE id = ${id} AND user_id = ${userId}`;
-        return;
-      }
-      data = Buffer.from(bytes).toString("base64");
-      mediaType = row.content_type;
+    parser = new PDFParse({ data: new Uint8Array(data) });
+    const { text } = await parser.getText();
+    const fields = parsePayslipText(text);
+
+    const foundAnything = Object.entries(fields).some(([key, value]) => key !== "notes" && value !== null);
+    if (!foundAnything) {
+      await db().sql`UPDATE payslips SET extraction_status = 'extraction_failed' WHERE id = ${id} AND user_id = ${userId}`;
+      return;
     }
-
-    const contentBlock: Anthropic.Messages.ContentBlockParam =
-      mediaType === "application/pdf"
-        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-        : { type: "image", source: { type: "base64", media_type: mediaType as "image/png" | "image/jpeg", data } };
-
-    const message = await ai().messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: [contentBlock, { type: "text", text: EXTRACTION_PROMPT }] }],
-    });
-
-    const textBlock = message.content.find((b): b is Anthropic.Messages.TextBlock => b.type === "text");
-    if (!textBlock) throw new Error("Intet tekstsvar fra modellen.");
-
-    // Models sometimes wrap JSON in a ```json fence despite instructions —
-    // strip it rather than fail outright on otherwise-valid output.
-    const cleaned = textBlock.text.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const parsed = JSON.parse(cleaned) as Partial<ExtractedPayslipFields>;
-
-    const fields: ExtractedPayslipFields = {
-      taxRatePct: typeof parsed.taxRatePct === "number" ? parsed.taxRatePct : null,
-      amBidragPct: typeof parsed.amBidragPct === "number" ? parsed.amBidragPct : null,
-      monthlyTaxDeduction: typeof parsed.monthlyTaxDeduction === "number" ? parsed.monthlyTaxDeduction : null,
-      atpRatePerHour: typeof parsed.atpRatePerHour === "number" ? parsed.atpRatePerHour : null,
-      hourlyRate: typeof parsed.hourlyRate === "number" ? parsed.hourlyRate : null,
-      grossAmount: typeof parsed.grossAmount === "number" ? parsed.grossAmount : null,
-      netAmount: typeof parsed.netAmount === "number" ? parsed.netAmount : null,
-      notes: typeof parsed.notes === "string" ? parsed.notes : null,
-    };
 
     await db().sql`
       UPDATE payslips SET extraction_status = 'extracted', extracted_fields = ${JSON.stringify(fields)}::jsonb
@@ -209,6 +146,8 @@ export async function extractPayslipFields(id: number, base64?: string, contentT
     // Never surfaces the raw error to the user, never invents a fallback
     // number — just marks the attempt failed so the UI offers manual entry.
     await db().sql`UPDATE payslips SET extraction_status = 'extraction_failed' WHERE id = ${id} AND user_id = ${userId}`;
+  } finally {
+    if (parser) await parser.destroy();
   }
 }
 
