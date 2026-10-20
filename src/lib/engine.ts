@@ -8,7 +8,13 @@
 // run in UTC) AND in the browser (Danish local time) — without this, "12:00
 // pause" would mean a different instant depending on which side evaluated
 // it, and the two could disagree on gross/net for the same shift.
-import { zonedParts, zonedDateTime, copenhagenStartOfDay as startOfLocalDay, addCalendarDays, copenhagenWeekday } from "@/lib/timezone";
+// Relative, not "@/lib/timezone" — this file is also imported, via
+// live-push-tick.ts, by the standalone Netlify Scheduled Function in
+// netlify/functions/push-tick.mts, which is bundled by Netlify's own
+// function bundler rather than Next.js's. A relative import resolves
+// identically under both, so it's the only version safe to rely on here;
+// the "@/" alias is only guaranteed to resolve inside Next's own build.
+import { zonedParts, zonedDateTime, copenhagenStartOfDay as startOfLocalDay, addCalendarDays, copenhagenWeekday } from "./timezone";
 
 export type WageConfig = {
   hourlyRate: number;

@@ -8,7 +8,6 @@ import { copenhagenDayKey, copenhagenWeekday, zonedDateTime, addCalendarDays } f
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
-import { sendToSubscription, type PushSubscriptionRow } from "@/lib/push";
 import {
   computeIntervalEarnings,
   computeSickDayEarnings,
@@ -20,59 +19,17 @@ import {
   weeklyOvertimeThresholdHours,
   type WageConfig,
 } from "@/lib/engine";
+import {
+  toConfig,
+  priorWeekElapsedSeconds,
+  priorTodayPaidSeconds,
+  priorPeriodTotals,
+  sendPushToUser,
+  type WageSettingsRow,
+} from "@/lib/wage-internal";
 
 function formatKr(n: number): string {
   return n.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kr";
-}
-
-// ─────────────────────────────────────────────────────────────
-// ROW MAPPING
-// ─────────────────────────────────────────────────────────────
-
-type WageSettingsRow = {
-  hourly_rate: number;
-  overtime_threshold_hours: number;
-  overtime_bonus_pct: number;
-  night_supplement: number;
-  night_start_hour: number;
-  night_end_hour: number;
-  weekend_supplement: number;
-  holiday_supplement: number;
-  break_start_minutes: number;
-  break_end_minutes: number;
-  monthly_tax_deduction: number;
-  am_bidrag_pct: number;
-  tax_rate_pct: number;
-  atp_rate_per_hour: number;
-  sick_pay_hourly_rate: number;
-  advance_amount: number;
-  pay_period_start: Date;
-  pay_period_end: Date;
-  work_days_per_week: number;
-};
-
-function toConfig(row: WageSettingsRow): WageConfig {
-  return {
-    hourlyRate: row.hourly_rate,
-    overtimeThresholdHours: row.overtime_threshold_hours,
-    overtimeBonusPct: row.overtime_bonus_pct,
-    nightSupplement: row.night_supplement,
-    nightStartHour: row.night_start_hour,
-    nightEndHour: row.night_end_hour,
-    weekendSupplement: row.weekend_supplement,
-    holidaySupplement: row.holiday_supplement,
-    breakStartMinutes: row.break_start_minutes,
-    breakEndMinutes: row.break_end_minutes,
-    monthlyTaxDeduction: row.monthly_tax_deduction,
-    amBidragPct: row.am_bidrag_pct,
-    taxRatePct: row.tax_rate_pct,
-    atpRatePerHour: row.atp_rate_per_hour,
-    sickPayHourlyRate: row.sick_pay_hourly_rate,
-    advanceAmount: row.advance_amount,
-    payPeriodStart: new Date(row.pay_period_start),
-    payPeriodEnd: new Date(row.pay_period_end),
-    workDaysPerWeek: row.work_days_per_week,
-  };
 }
 
 type SessionRow = {
@@ -339,15 +296,6 @@ export async function getPushSubscriptionCount(): Promise<number> {
   return Number(rows[0]?.count ?? 0);
 }
 
-async function sendPushToUser(userId: number, payload: { title: string; body: string; tag?: string; url?: string }): Promise<void> {
-  const subs = await db().sql<PushSubscriptionRow>`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`;
-  for (const sub of subs) {
-    const result = await sendToSubscription(sub, payload);
-    if (result === "gone") {
-      await db().sql`DELETE FROM push_subscriptions WHERE endpoint = ${sub.endpoint}`;
-    }
-  }
-}
 
 // wage-card.tsx's live toast effects (hour-milestone, kr-milestone,
 // overtime) can only ever detect a crossing while the app is actually open
@@ -390,30 +338,6 @@ export async function pushLiveMilestone(kind: "hour-milestone" | "kr-milestone" 
 // OVERTIME / ELAPSED-TIME HELPERS
 // ─────────────────────────────────────────────────────────────
 
-async function priorWeekElapsedSeconds(userId: number, before: Date): Promise<number> {
-  const { start } = getWeekRange(before);
-  const rows = await db().sql<{ check_in_at: Date; check_out_at: Date }>`
-    SELECT check_in_at, check_out_at FROM work_sessions
-    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
-      AND check_in_at >= ${start} AND check_in_at < ${before}
-  `;
-  return rows.reduce((sum, r) => sum + (new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 1000, 0);
-}
-
-// Paid seconds already worked TODAY (Danish calendar day), from closed,
-// real sessions strictly before `before` — the baseline the live "timer i
-// dag" display adds the open session's live ticking seconds to, same
-// pattern as priorPeriodPaidSeconds for the kr figure.
-async function priorTodayPaidSeconds(userId: number, before: Date): Promise<number> {
-  const dayStart = startOfDay(before);
-  const rows = await db().sql<{ paid_seconds: number | null }>`
-    SELECT paid_seconds FROM work_sessions
-    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
-      AND check_in_at >= ${dayStart} AND check_in_at < ${before}
-  `;
-  return rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
-}
-
 async function recomputePeriodSessions(userId: number, config: WageConfig): Promise<void> {
   const { start, end } = getPayPeriodRange(config);
   const sessions = await db().sql<SessionRow>`
@@ -449,20 +373,6 @@ async function recomputePeriodSessions(userId: number, config: WageConfig): Prom
       }
     }
   }
-}
-
-async function priorPeriodTotals(userId: number, before: Date, config: WageConfig) {
-  const { start, end } = getPayPeriodRange(config);
-  const windowEnd = before < end ? before : end;
-  const rows = await db().sql<{ gross_amount: number | null; paid_seconds: number | null }>`
-    SELECT gross_amount, paid_seconds FROM work_sessions
-    WHERE user_id = ${userId} AND check_out_at IS NOT NULL
-      AND check_in_at >= ${start} AND check_in_at < ${windowEnd}
-  `;
-  return rows.reduce(
-    (acc, r) => ({ gross: acc.gross + (r.gross_amount ?? 0), paidSeconds: acc.paidSeconds + (r.paid_seconds ?? 0) }),
-    { gross: 0, paidSeconds: 0 }
-  );
 }
 
 async function rebalancePeriodNetAmounts(userId: number, config: WageConfig): Promise<void> {
