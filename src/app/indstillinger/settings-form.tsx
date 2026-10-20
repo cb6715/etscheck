@@ -42,6 +42,8 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
   const [nightSupplement, setNightSupplement] = useState(String(settings.nightSupplement));
   const [nightStartHour, setNightStartHour] = useState(settings.nightStartHour);
   const [nightEndHour, setNightEndHour] = useState(settings.nightEndHour);
+  const [weekendSupplement, setWeekendSupplement] = useState(String(settings.weekendSupplement));
+  const [holidaySupplement, setHolidaySupplement] = useState(String(settings.holidaySupplement));
   const [breakStart, setBreakStart] = useState(minutesToTime(settings.breakStartMinutes));
   const [breakEnd, setBreakEnd] = useState(minutesToTime(settings.breakEndMinutes));
   const [monthlyTaxDeduction, setMonthlyTaxDeduction] = useState(String(settings.monthlyTaxDeduction));
@@ -69,6 +71,8 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
         nightSupplement: Number(nightSupplement) || 0,
         nightStartHour,
         nightEndHour,
+        weekendSupplement: Number(weekendSupplement) || 0,
+        holidaySupplement: Number(holidaySupplement) || 0,
         breakStartMinutes: timeToMinutes(breakStart),
         breakEndMinutes: timeToMinutes(breakEnd),
         monthlyTaxDeduction: Number(monthlyTaxDeduction) || 0,
@@ -123,6 +127,12 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
             ))}
           </select>
         </Field>
+        <Field label="Weekendtillæg (kr/time)">
+          <input className={inputClass} type="number" value={weekendSupplement} onChange={(e) => setWeekendSupplement(e.target.value)} />
+        </Field>
+        <Field label="Helligdagstillæg (kr/time)">
+          <input className={inputClass} type="number" value={holidaySupplement} onChange={(e) => setHolidaySupplement(e.target.value)} />
+        </Field>
         <Field label="Ulønnet pause fra">
           <input className={inputClass} type="time" value={breakStart} onChange={(e) => setBreakStart(e.target.value)} />
         </Field>
@@ -165,6 +175,10 @@ export function SettingsForm({ settings }: { settings: WageConfig }) {
       <p className="text-xs text-[var(--muted)]">
         ATP-bidrag beregnes nu automatisk efter de officielle trin-satser (99/66/33/0 kr afhængig af timetal i
         perioden) i stedet for en kr/time-sats — derfor er feltet fjernet herfra.
+      </p>
+      <p className="text-xs text-[var(--muted)]">
+        Weekendtillæg gælder timer på lørdag/søndag. Falder en dansk helligdag i en weekend, er det
+        helligdagstillægget der bruges for de timer, ikke begge — de to lægges ikke sammen.
       </p>
       <Button onClick={save} disabled={pending} className="flex items-center gap-2">
         <Save size={16} /> {pending ? "Gemmer..." : saved ? "Gemt!" : "Gem lønindstillinger"}

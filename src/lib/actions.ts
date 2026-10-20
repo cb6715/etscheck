@@ -107,6 +107,8 @@ export type SignUpInput = {
   hourlyRate: number;
   overtimeThresholdHours: number;
   overtimeBonusPct: number;
+  weekendSupplement: number;
+  holidaySupplement: number;
   breakStartMinutes: number;
   breakEndMinutes: number;
   monthlyTaxDeduction: number;
@@ -116,6 +118,7 @@ export type SignUpInput = {
   sickPayHourlyRate: number;
   payPeriodStart: Date;
   payPeriodEnd: Date;
+  trackingMode?: TrackingMode;
 };
 
 // Creates a new user + their wage settings, then logs them in. Multi-tenant:
@@ -135,14 +138,16 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
   await db().sql`
     INSERT INTO wage_settings (
       user_id, hourly_rate, overtime_threshold_hours, overtime_bonus_pct,
+      weekend_supplement, holiday_supplement,
       break_start_minutes, break_end_minutes, monthly_tax_deduction,
       am_bidrag_pct, tax_rate_pct, atp_rate_per_hour, sick_pay_hourly_rate,
-      pay_period_start, pay_period_end
+      pay_period_start, pay_period_end, tracking_mode
     ) VALUES (
       ${user.id}, ${input.hourlyRate}, ${input.overtimeThresholdHours}, ${input.overtimeBonusPct},
+      ${input.weekendSupplement}, ${input.holidaySupplement},
       ${input.breakStartMinutes}, ${input.breakEndMinutes}, ${input.monthlyTaxDeduction},
       ${input.amBidragPct}, ${input.taxRatePct}, ${input.atpRatePerHour}, ${input.sickPayHourlyRate},
-      ${copenhagenDayKey(input.payPeriodStart)}, ${copenhagenDayKey(input.payPeriodEnd)}
+      ${copenhagenDayKey(input.payPeriodStart)}, ${copenhagenDayKey(input.payPeriodEnd)}, ${input.trackingMode ?? "daily"}
     )
   `;
   await db().sql`INSERT INTO subscriptions (user_id, status) VALUES (${user.id}, 'none')`;
