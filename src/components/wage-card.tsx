@@ -32,6 +32,7 @@ import {
   closePayPeriod,
   savePushSubscription,
   getPushSubscriptionCount,
+  pushLiveMilestone,
   type WageContext,
 } from "@/lib/actions";
 import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross, lastWeekdayOfMonth } from "@/lib/engine";
@@ -299,6 +300,10 @@ export function WageCard() {
           `Du har nu optjent ${formatKr(netto)} netto i denne lønperiode.`,
           "milestone"
         );
+        // Fires the REAL push (lock screen) the instant this is noticed, not
+        // just the in-app/foreground toast above — see pushLiveMilestone's
+        // own comment for why this used to only happen at checkout.
+        pushLiveMilestone("kr-milestone", m * MILESTONE_STEP_KR).catch((e) => console.error("Live milestone push failed:", e));
       }
       lastMilestoneRef.current = currentMilestone;
     }
@@ -321,6 +326,10 @@ export function WageCard() {
           `Du er på ${weekHoursElapsed.toFixed(1)}t ud af ugens grænse på ${context?.thisWeekThresholdHours}t.`,
           "hour-milestone"
         );
+        // Real push, not just the foreground toast above — this is what was
+        // missing: previously an hour-milestone crossed WHILE still checked
+        // in only reached the lock screen retroactively, at checkout.
+        pushLiveMilestone("hour-milestone", m * HOUR_MILESTONE_STEP).catch((e) => console.error("Live milestone push failed:", e));
       }
       lastHourMilestoneRef.current = currentMilestone;
     }
@@ -340,6 +349,7 @@ export function WageCard() {
         `Din timeløn er nu ${formatKr(overtimeRate)}/time.`,
         "overtime"
       );
+      pushLiveMilestone("overtime", 0).catch((e) => console.error("Live overtime push failed:", e));
     }
     wasOvertimeRef.current = inOvertime;
   }, [inOvertime, context, notify]);

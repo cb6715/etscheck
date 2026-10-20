@@ -349,6 +349,43 @@ async function sendPushToUser(userId: number, payload: { title: string; body: st
   }
 }
 
+// wage-card.tsx's live toast effects (hour-milestone, kr-milestone,
+// overtime) can only ever detect a crossing while the app is actually open
+// — that's the only place the live elapsed-time math runs. Previously that
+// meant a real Web Push (the one that reaches the lock screen) only went
+// out from checkOut(), i.e. AFTER you eventually check out, which could be
+// hours after the threshold was actually crossed while still checked in.
+// This lets the client fire the real push at the exact moment it notices
+// the crossing, while the app still happens to be open to notice it at
+// all — the same "has to be open to detect it, but can push the instant it
+// does" trade-off the push-permission flow itself already lives with.
+// Takes only a `kind` + numeric milestone, never free text from the
+// client, so there's no way to push arbitrary notification content through
+// this endpoint — the wording is generated here, same as the checkOut path.
+export async function pushLiveMilestone(kind: "hour-milestone" | "kr-milestone" | "overtime", milestone: number): Promise<void> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  if (kind === "hour-milestone") {
+    await sendPushToUser(userId, {
+      title: `⏱️ Du har nu arbejdet ${milestone} timer denne uge`,
+      body: `Du runder ${milestone} timer denne uge, lige nu.`,
+      tag: "hour-milestone",
+    });
+  } else if (kind === "kr-milestone") {
+    await sendPushToUser(userId, {
+      title: `🎉 Du er over ${milestone.toLocaleString("da-DK")} kr netto`,
+      body: `Du har nu optjent over ${milestone.toLocaleString("da-DK")} kr netto i denne lønperiode.`,
+      tag: "milestone",
+    });
+  } else {
+    await sendPushToUser(userId, {
+      title: "⏱️ Du er gået i overtid",
+      body: "Du har krydset ugens overtidsgrænse, lige nu.",
+      tag: "overtime",
+    });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // OVERTIME / ELAPSED-TIME HELPERS
 // ─────────────────────────────────────────────────────────────
