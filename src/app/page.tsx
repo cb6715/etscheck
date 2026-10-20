@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, History } from "lucide-react";
 import Link from "next/link";
 import { getSessionUserId } from "@/lib/session";
 import { getAccessState } from "@/lib/access";
@@ -27,6 +27,14 @@ export default async function HomePage() {
         <Card className="flex items-center justify-between p-4 transition hover:border-[var(--accent)]">
           <span className="flex items-center gap-2 text-sm font-bold">
             <CalendarDays size={16} /> Se ugen — timer, sygedage
+          </span>
+          <span className="text-[var(--muted)]">→</span>
+        </Card>
+      </Link>
+      <Link href="/loenhistorik">
+        <Card className="flex items-center justify-between p-4 transition hover:border-[var(--accent)]">
+          <span className="flex items-center gap-2 text-sm font-bold">
+            <History size={16} /> Lønhistorik — tidligere perioder
           </span>
           <span className="text-[var(--muted)]">→</span>
         </Card>

@@ -277,6 +277,24 @@ export type LastClosedPeriod = {
   advanceAmount: number;
 };
 
+type PayPeriodHistoryRow = {
+  period_start: Date;
+  period_end: Date;
+  gross_amount: number;
+  net_amount: number;
+  advance_amount: number;
+};
+
+function toLastClosedPeriod(row: PayPeriodHistoryRow): LastClosedPeriod {
+  return {
+    periodStart: copenhagenDayKey(new Date(row.period_start)),
+    periodEnd: copenhagenDayKey(new Date(row.period_end)),
+    grossAmount: row.gross_amount,
+    netAmount: row.net_amount,
+    advanceAmount: row.advance_amount,
+  };
+}
+
 /** The most recently closed period's final snapshot, or null if none has
  * ever been closed yet — the dashboard uses this for "sidste periode: X
  * kr, udbetales d. Y", computing the payout date/amount itself the same
@@ -285,24 +303,68 @@ export type LastClosedPeriod = {
 export async function getLastClosedPeriod(): Promise<LastClosedPeriod | null> {
   const userId = await getUserId();
   await requireActiveAccess(userId);
-  const [row] = await db().sql<{
-    period_start: Date;
-    period_end: Date;
-    gross_amount: number;
-    net_amount: number;
-    advance_amount: number;
-  }>`
+  const [row] = await db().sql<PayPeriodHistoryRow>`
     SELECT period_start, period_end, gross_amount, net_amount, advance_amount
     FROM pay_period_history WHERE user_id = ${userId} ORDER BY period_end DESC LIMIT 1
   `;
-  if (!row) return null;
-  return {
-    periodStart: copenhagenDayKey(new Date(row.period_start)),
-    periodEnd: copenhagenDayKey(new Date(row.period_end)),
-    grossAmount: row.gross_amount,
-    netAmount: row.net_amount,
-    advanceAmount: row.advance_amount,
-  };
+  return row ? toLastClosedPeriod(row) : null;
+}
+
+/** Every closed period, newest first — "Lønhistorik" (src/app/loenhistorik)
+ * lists these so a past payout is never just "the last one shown on the
+ * forside", it stays visible/checkable indefinitely. */
+export async function getPayPeriodHistory(): Promise<LastClosedPeriod[]> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const rows = await db().sql<PayPeriodHistoryRow>`
+    SELECT period_start, period_end, gross_amount, net_amount, advance_amount
+    FROM pay_period_history WHERE user_id = ${userId} ORDER BY period_end DESC
+  `;
+  return rows.map(toLastClosedPeriod);
+}
+
+/**
+ * Adds a pay_period_history row for a period that was closed BEFORE
+ * closePayPeriod started snapshotting (every close before that change
+ * shipped has nothing recorded — the old boundaries/totals were genuinely
+ * overwritten, not just hidden). The gross/paid-seconds totals are summed
+ * straight from the real, already-stored work_sessions rows in the given
+ * range — frozen at whatever they were computed as back when each session
+ * was checked out — never recomputed or estimated, so this can't invent a
+ * number that wasn't already sitting in the database. Only the date range
+ * and any forskud are user-supplied, since those genuinely aren't
+ * recoverable from session data alone.
+ */
+export async function backfillPeriodHistory(
+  periodStart: Date,
+  periodEnd: Date,
+  advanceAmount: number
+): Promise<ActionResult> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+
+  const start = startOfDay(periodStart);
+  const end = addCalendarDays(startOfDay(periodEnd), 1);
+  if (!(end > start)) return fail("Periodens slutdato skal være efter startdatoen.");
+
+  const rows = await db().sql<{ gross_amount: number | null; paid_seconds: number | null }>`
+    SELECT gross_amount, paid_seconds FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND check_in_at >= ${start} AND check_in_at < ${end}
+  `;
+  if (rows.length === 0) return fail("Ingen registrerede vagter i den periode — intet at gemme.");
+
+  const gross = rows.reduce((sum, r) => sum + (r.gross_amount ?? 0), 0);
+  const paidSeconds = rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
+  const netAmount = netForCumulative(gross, paidSeconds, config);
+
+  await db().sql`
+    INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
+    VALUES (${userId}, ${copenhagenDayKey(start)}, ${copenhagenDayKey(periodEnd)}, ${gross}, ${netAmount}, ${advanceAmount})
+  `;
+  revalidatePath("/");
+  revalidatePath("/loenhistorik");
+  return ok(undefined);
 }
 
 // ─────────────────────────────────────────────────────────────
