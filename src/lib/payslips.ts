@@ -1,10 +1,14 @@
 "use server";
 
 // Lønseddel (payslip) upload with field extraction done by PLAIN CODE —
-// no AI/LLM call. A PDF's text layer is pulled out with pdf-parse (pure
-// JS, wraps Mozilla's pdf.js, no native deps — runs fine in a Netlify
-// Function), then parsed with fixed regex patterns calibrated against a
-// real Danløn-format payslip (Tekst/Grundlag/Sats/Udbetalt/Trukket table,
+// no AI/LLM call. A PDF's text layer is pulled out with unpdf (a
+// serverless-build wrapper around Mozilla's pdf.js, built specifically to
+// avoid needing browser-only globals like DOMMatrix/Path2D or a canvas
+// native module — the first library tried here, plain "pdf-parse",
+// crashed every page that imported it in production with exactly that
+// ReferenceError, because its default build assumes those globals exist),
+// then parsed with fixed regex patterns calibrated against a real
+// Danløn-format payslip (Tekst/Grundlag/Sats/Udbetalt/Trukket table,
 // monthly fradrag embedded in the A-skat row's own label text). A PDF from
 // a different payroll system, or a photographed/scanned payslip with no
 // text layer, simply won't match these patterns — extraction then yields
@@ -22,7 +26,7 @@
 
 import { randomUUID } from "crypto";
 import { getStore } from "@netlify/blobs";
-import { PDFParse } from "pdf-parse";
+import { getDocumentProxy, extractText } from "unpdf";
 import { db } from "@/lib/db";
 import { requireActiveAccess } from "@/lib/access";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
@@ -126,10 +130,9 @@ export async function extractPayslipFields(id: number, bytes?: ArrayBuffer, cont
     return;
   }
 
-  let parser: PDFParse | null = null;
   try {
-    parser = new PDFParse({ data: new Uint8Array(data) });
-    const { text } = await parser.getText();
+    const pdf = await getDocumentProxy(new Uint8Array(data));
+    const { text } = await extractText(pdf, { mergePages: true });
     const fields = parsePayslipText(text);
 
     const foundAnything = Object.entries(fields).some(([key, value]) => key !== "notes" && value !== null);
@@ -146,8 +149,6 @@ export async function extractPayslipFields(id: number, bytes?: ArrayBuffer, cont
     // Never surfaces the raw error to the user, never invents a fallback
     // number — just marks the attempt failed so the UI offers manual entry.
     await db().sql`UPDATE payslips SET extraction_status = 'extraction_failed' WHERE id = ${id} AND user_id = ${userId}`;
-  } finally {
-    if (parser) await parser.destroy();
   }
 }
 
