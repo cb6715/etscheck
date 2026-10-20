@@ -34,8 +34,12 @@ type LiveWageSettingsRow = WageSettingsRow & {
 export type TickResult = { openSessions: number; notificationsSent: number };
 
 export async function runLiveMilestoneTick(): Promise<TickResult> {
+  // One client for the whole tick — every open session's queries below
+  // reuse this same connection instead of each opening its own, same
+  // reasoning as actions.ts's per-request client.
+  const client = db();
   const now = new Date();
-  const openSessions = await db().sql<OpenSessionRow>`
+  const openSessions = await client.sql<OpenSessionRow>`
     SELECT user_id, check_in_at FROM work_sessions WHERE check_out_at IS NULL
   `;
 
@@ -43,14 +47,14 @@ export async function runLiveMilestoneTick(): Promise<TickResult> {
 
   for (const session of openSessions) {
     const checkInAt = new Date(session.check_in_at);
-    const [settingsRow] = await db().sql<LiveWageSettingsRow>`SELECT * FROM wage_settings WHERE user_id = ${session.user_id}`;
+    const [settingsRow] = await client.sql<LiveWageSettingsRow>`SELECT * FROM wage_settings WHERE user_id = ${session.user_id}`;
     if (!settingsRow) continue;
 
     const config = toConfig(settingsRow);
     const thresholdHours = weeklyOvertimeThresholdHours(config);
     const [weekSecondsBefore, periodBefore] = await Promise.all([
-      priorWeekElapsedSeconds(session.user_id, checkInAt),
-      priorPeriodTotals(session.user_id, checkInAt, config),
+      priorWeekElapsedSeconds(client, session.user_id, checkInAt),
+      priorPeriodTotals(client, session.user_id, checkInAt, config),
     ]);
 
     const { paidSeconds: liveShiftPaidSeconds, grossAmount: liveShiftGross } = computeIntervalEarnings(
@@ -73,7 +77,7 @@ export async function runLiveMilestoneTick(): Promise<TickResult> {
 
     if (currentHourMilestone > settingsRow.live_hour_milestone) {
       for (let m = settingsRow.live_hour_milestone + 1; m <= currentHourMilestone; m++) {
-        await sendPushToUser(session.user_id, {
+        await sendPushToUser(client, session.user_id, {
           title: `⏱️ Du har nu arbejdet ${m * HOUR_MILESTONE_STEP} timer denne uge`,
           body: `Du er på ${weekHoursNow.toFixed(1)}t ud af ugens grænse på ${thresholdHours}t.`,
           tag: "hour-milestone",
@@ -84,7 +88,7 @@ export async function runLiveMilestoneTick(): Promise<TickResult> {
 
     if (currentKrMilestone > settingsRow.live_kr_milestone) {
       for (let m = settingsRow.live_kr_milestone + 1; m <= currentKrMilestone; m++) {
-        await sendPushToUser(session.user_id, {
+        await sendPushToUser(client, session.user_id, {
           title: `🎉 Du er over ${(m * KR_MILESTONE_STEP).toLocaleString("da-DK")} kr netto`,
           body: `Du har nu optjent over ${(m * KR_MILESTONE_STEP).toLocaleString("da-DK")} kr netto i denne lønperiode.`,
           tag: "milestone",
@@ -95,7 +99,7 @@ export async function runLiveMilestoneTick(): Promise<TickResult> {
 
     if (isOvertimeNow && !settingsRow.live_overtime_notified) {
       const overtimeRate = config.hourlyRate * (1 + config.overtimeBonusPct);
-      await sendPushToUser(session.user_id, {
+      await sendPushToUser(client, session.user_id, {
         title: "⏱️ Du er gået i overtid",
         body: `Din timeløn er nu ${overtimeRate.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/time.`,
         tag: "overtime",
@@ -106,7 +110,7 @@ export async function runLiveMilestoneTick(): Promise<TickResult> {
     // Always written back, not just on a crossing — this is also what lets
     // a new week/period "reset" the counters down without that downward
     // transition itself being treated as a crossing worth notifying about.
-    await db().sql`
+    await client.sql`
       UPDATE wage_settings
       SET live_hour_milestone = ${currentHourMilestone}, live_kr_milestone = ${currentKrMilestone}, live_overtime_notified = ${isOvertimeNow}
       WHERE user_id = ${session.user_id}

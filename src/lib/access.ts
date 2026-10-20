@@ -1,5 +1,6 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { cache } from "react";
+import { db, type DbClient } from "@/lib/db";
 
 // Central, server-only authority on who gets to use WageFlow. Every page
 // and every mutating/reading server action funnels through this — never
@@ -30,10 +31,22 @@ export function isOwnerUserId(userId: number): boolean {
   return Boolean(ownerEnv) && String(userId) === ownerEnv;
 }
 
-export async function getAccessState(userId: number): Promise<AccessState> {
+// Wrapped in React's cache(): every protected page calls this at least
+// twice in the SAME render pass — once in layout.tsx (for the nav bar's
+// admin tab), once more via requirePageAccess or the page itself — and
+// cache() dedupes repeat calls with the same userId within that one render
+// into a single DB round trip. It's a no-op outside a render (e.g. called
+// from a "use server" action below, with an explicit shared client), so
+// this can never reintroduce the stale-connection bug a PROCESS-scoped
+// cache caused earlier: nothing here is cached across requests, only
+// (optionally) within one.
+export const getAccessState = cache(async function getAccessState(
+  userId: number,
+  client: DbClient = db()
+): Promise<AccessState> {
   const [[user], [sub]] = await Promise.all([
-    db().sql<UserRow>`SELECT id, is_owner, stripe_customer_id FROM users WHERE id = ${userId}`,
-    db().sql<SubscriptionRow>`SELECT status, current_period_end, cancel_at_period_end FROM subscriptions WHERE user_id = ${userId}`,
+    client.sql<UserRow>`SELECT id, is_owner, stripe_customer_id FROM users WHERE id = ${userId}`,
+    client.sql<SubscriptionRow>`SELECT status, current_period_end, cancel_at_period_end FROM subscriptions WHERE user_id = ${userId}`,
   ]);
 
   const isOwner = Boolean(user?.is_owner) || isOwnerUserId(userId);
@@ -50,10 +63,10 @@ export async function getAccessState(userId: number): Promise<AccessState> {
     // grace-period logic needed here.
     hasAccess: isOwner || status === "active",
   };
-}
+});
 
-export async function requireActiveAccess(userId: number): Promise<void> {
-  const access = await getAccessState(userId);
+export async function requireActiveAccess(userId: number, client?: DbClient): Promise<void> {
+  const access = await getAccessState(userId, client);
   if (!access.hasAccess) {
     throw new Error("Dit WageFlow-abonnement er ikke aktivt. Gå til Abonnement for at fortsætte.");
   }

@@ -20,7 +20,7 @@
 // Relative imports throughout this file, not "@/lib/..." — see the
 // comment on engine.ts's own import for why: this file is reachable from
 // the standalone Netlify Scheduled Function, bundled outside Next's build.
-import { db } from "./db";
+import type { DbClient } from "./db";
 import { getWeekRange, startOfDay } from "./date";
 import { getPayPeriodRange, type WageConfig } from "./engine";
 import { sendToSubscription, type PushSubscriptionRow } from "./push";
@@ -71,9 +71,9 @@ export function toConfig(row: WageSettingsRow): WageConfig {
   };
 }
 
-export async function priorWeekElapsedSeconds(userId: number, before: Date): Promise<number> {
+export async function priorWeekElapsedSeconds(client: DbClient, userId: number, before: Date): Promise<number> {
   const { start } = getWeekRange(before);
-  const rows = await db().sql<{ check_in_at: Date; check_out_at: Date }>`
+  const rows = await client.sql<{ check_in_at: Date; check_out_at: Date }>`
     SELECT check_in_at, check_out_at FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
       AND check_in_at >= ${start} AND check_in_at < ${before}
@@ -85,9 +85,9 @@ export async function priorWeekElapsedSeconds(userId: number, before: Date): Pro
 // real sessions strictly before `before` — the baseline the live "timer i
 // dag" display adds the open session's live ticking seconds to, same
 // pattern as priorPeriodTotals for the kr figure.
-export async function priorTodayPaidSeconds(userId: number, before: Date): Promise<number> {
+export async function priorTodayPaidSeconds(client: DbClient, userId: number, before: Date): Promise<number> {
   const dayStart = startOfDay(before);
-  const rows = await db().sql<{ paid_seconds: number | null }>`
+  const rows = await client.sql<{ paid_seconds: number | null }>`
     SELECT paid_seconds FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
       AND check_in_at >= ${dayStart} AND check_in_at < ${before}
@@ -96,13 +96,14 @@ export async function priorTodayPaidSeconds(userId: number, before: Date): Promi
 }
 
 export async function priorPeriodTotals(
+  client: DbClient,
   userId: number,
   before: Date,
   config: WageConfig
 ): Promise<{ gross: number; paidSeconds: number }> {
   const { start, end } = getPayPeriodRange(config);
   const windowEnd = before < end ? before : end;
-  const rows = await db().sql<{ gross_amount: number | null; paid_seconds: number | null }>`
+  const rows = await client.sql<{ gross_amount: number | null; paid_seconds: number | null }>`
     SELECT gross_amount, paid_seconds FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL
       AND check_in_at >= ${start} AND check_in_at < ${windowEnd}
@@ -114,14 +115,15 @@ export async function priorPeriodTotals(
 }
 
 export async function sendPushToUser(
+  client: DbClient,
   userId: number,
   payload: { title: string; body: string; tag?: string; url?: string }
 ): Promise<void> {
-  const subs = await db().sql<PushSubscriptionRow>`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`;
+  const subs = await client.sql<PushSubscriptionRow>`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`;
   for (const sub of subs) {
     const result = await sendToSubscription(sub, payload);
     if (result === "gone") {
-      await db().sql`DELETE FROM push_subscriptions WHERE endpoint = ${sub.endpoint}`;
+      await client.sql`DELETE FROM push_subscriptions WHERE endpoint = ${sub.endpoint}`;
     }
   }
 }

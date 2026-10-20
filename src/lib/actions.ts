@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import { getWeekRange, startOfDay, endOfDay } from "@/lib/date";
 import { copenhagenDayKey, copenhagenWeekday, zonedDateTime, addCalendarDays } from "@/lib/timezone";
 import { createSession, destroySession, getSessionUserId, hashPassword, verifyPassword } from "@/lib/session";
@@ -84,15 +84,16 @@ export type SignUpInput = {
 // whether an account exists.
 export async function signUp(input: SignUpInput): Promise<ActionResult> {
   if (input.password.length < 8) return fail("Adgangskoden skal være mindst 8 tegn.");
+  const client = db();
 
-  const existing = await db().sql<{ id: number }>`SELECT id FROM users WHERE email = ${input.email}`;
+  const existing = await client.sql<{ id: number }>`SELECT id FROM users WHERE email = ${input.email}`;
   if (existing.length > 0) return fail("Der findes allerede en konto med den e-mail.");
 
   const passwordHash = hashPassword(input.password);
-  const [user] = await db().sql<{ id: number }>`
+  const [user] = await client.sql<{ id: number }>`
     INSERT INTO users (name, email, password_hash) VALUES (${input.name}, ${input.email}, ${passwordHash}) RETURNING id
   `;
-  await db().sql`
+  await client.sql`
     INSERT INTO wage_settings (
       user_id, hourly_rate, overtime_threshold_hours, overtime_bonus_pct,
       weekend_supplement, holiday_supplement,
@@ -107,7 +108,7 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
       ${copenhagenDayKey(input.payPeriodStart)}, ${copenhagenDayKey(input.payPeriodEnd)}, ${input.trackingMode ?? "daily"}
     )
   `;
-  await db().sql`INSERT INTO subscriptions (user_id, status) VALUES (${user.id}, 'none')`;
+  await client.sql`INSERT INTO subscriptions (user_id, status) VALUES (${user.id}, 'none')`;
   await createSession(user.id);
   revalidatePath("/");
   return ok(undefined);
@@ -134,18 +135,19 @@ export async function signOut(): Promise<void> {
 export async function changePassword(currentPassword: string, newPassword: string): Promise<ActionResult> {
   if (newPassword.length < 8) return fail("Den nye adgangskode skal være mindst 8 tegn.");
   const userId = await getUserId();
-  const [user] = await db().sql<{ password_hash: string | null }>`SELECT password_hash FROM users WHERE id = ${userId}`;
+  const client = db();
+  const [user] = await client.sql<{ password_hash: string | null }>`SELECT password_hash FROM users WHERE id = ${userId}`;
   if (!user?.password_hash || !verifyPassword(currentPassword, user.password_hash)) {
     return fail("Forkert nuværende adgangskode.");
   }
-  await db().sql`UPDATE users SET password_hash = ${hashPassword(newPassword)} WHERE id = ${userId}`;
+  await client.sql`UPDATE users SET password_hash = ${hashPassword(newPassword)} WHERE id = ${userId}`;
   return ok(undefined);
 }
 
-async function getOrCreateWageSettingsRow(userId: number): Promise<WageSettingsRow> {
-  const rows = await db().sql<WageSettingsRow>`SELECT * FROM wage_settings WHERE user_id = ${userId}`;
+async function getOrCreateWageSettingsRow(client: DbClient, userId: number): Promise<WageSettingsRow> {
+  const rows = await client.sql<WageSettingsRow>`SELECT * FROM wage_settings WHERE user_id = ${userId}`;
   if (rows.length > 0) return rows[0];
-  const [row] = await db().sql<WageSettingsRow>`
+  const [row] = await client.sql<WageSettingsRow>`
     INSERT INTO wage_settings (user_id) VALUES (${userId}) RETURNING *
   `;
   return row;
@@ -153,8 +155,9 @@ async function getOrCreateWageSettingsRow(userId: number): Promise<WageSettingsR
 
 export async function getWageSettings(): Promise<WageConfig> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  return toConfig(await getOrCreateWageSettingsRow(userId));
+  const client = db();
+  await requireActiveAccess(userId, client);
+  return toConfig(await getOrCreateWageSettingsRow(client, userId));
 }
 
 export type WageSettingsInput = Partial<WageConfig>;
@@ -183,13 +186,13 @@ const COLUMN_BY_FIELD: Record<keyof WageConfig, string> = {
 
 export async function updateWageSettings(input: WageSettingsInput): Promise<void> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  await getOrCreateWageSettingsRow(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
+  await getOrCreateWageSettingsRow(client, userId);
 
   const entries = Object.entries(input) as [keyof WageConfig, WageConfig[keyof WageConfig]][];
   for (const [field, value] of entries) {
     const column = COLUMN_BY_FIELD[field];
-    const client = db();
     // pay_period_start/end are DATE columns (no time component). Passing a
     // raw Date object lets the driver/Postgres reinterpret its UTC instant
     // and store the PREVIOUS calendar day — a Danish-midnight instant is
@@ -200,8 +203,8 @@ export async function updateWageSettings(input: WageSettingsInput): Promise<void
     await client.sql`UPDATE wage_settings SET ${client.sql.identifier(column)} = ${dbValue}, updated_at = now() WHERE user_id = ${userId}`;
   }
 
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
-  await rebalancePeriodNetAmounts(userId, config);
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
 }
@@ -215,16 +218,18 @@ export type TrackingMode = "daily" | "monthly";
 // the dashboard shows, never the underlying løn-beregning.
 export async function getTrackingMode(): Promise<TrackingMode> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const [row] = await db().sql<{ tracking_mode: TrackingMode }>`SELECT tracking_mode FROM wage_settings WHERE user_id = ${userId}`;
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const [row] = await client.sql<{ tracking_mode: TrackingMode }>`SELECT tracking_mode FROM wage_settings WHERE user_id = ${userId}`;
   return row?.tracking_mode ?? "daily";
 }
 
 export async function setTrackingMode(mode: TrackingMode): Promise<void> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  await getOrCreateWageSettingsRow(userId);
-  await db().sql`UPDATE wage_settings SET tracking_mode = ${mode} WHERE user_id = ${userId}`;
+  const client = db();
+  await requireActiveAccess(userId, client);
+  await getOrCreateWageSettingsRow(client, userId);
+  await client.sql`UPDATE wage_settings SET tracking_mode = ${mode} WHERE user_id = ${userId}`;
   revalidatePath("/");
 }
 
@@ -238,14 +243,15 @@ export async function setTrackingMode(mode: TrackingMode): Promise<void> {
 // stored paid_seconds/gross/net amounts stay frozen as of the close.
 export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<WageConfig>> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
 
   const newStart = addCalendarDays(startOfDay(config.payPeriodEnd), 1);
   const newEnd = startOfDay(newPeriodEnd);
   if (!(newEnd > newStart)) return fail("Den nye periode skal slutte efter den starter.");
 
-  const finalTotals = await priorPeriodTotals(userId, newStart, config);
+  const finalTotals = await priorPeriodTotals(client, userId, newStart, config);
   const finalNetto = netForCumulative(finalTotals.gross, finalTotals.paidSeconds, config);
   const finalPayout = expectedPayout(finalNetto, config);
 
@@ -254,13 +260,13 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
   // advances it, this exact period's boundaries/totals would otherwise be
   // gone. Lets the dashboard show "sidste periode: X kr, udbetales d. Y"
   // reliably after closing, instead of only ever showing the new period.
-  await db().sql`
+  await client.sql`
     INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
     VALUES (${userId}, ${copenhagenDayKey(config.payPeriodStart)}, ${copenhagenDayKey(config.payPeriodEnd)}, ${finalTotals.gross}, ${finalNetto}, ${config.advanceAmount})
   `;
 
   await updateWageSettings({ payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
-  await sendPushToUser(userId, {
+  await sendPushToUser(client, userId, {
     title: "📅 Lønperiode lukket",
     body: `${formatKr(finalPayout)} klar til udbetaling. Ny periode er startet.`,
     tag: "period",
@@ -341,14 +347,15 @@ export async function backfillPeriodHistory(
   advanceAmount: number
 ): Promise<ActionResult> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
 
   const start = startOfDay(periodStart);
   const end = addCalendarDays(startOfDay(periodEnd), 1);
   if (!(end > start)) return fail("Periodens slutdato skal være efter startdatoen.");
 
-  const rows = await db().sql<{ gross_amount: number | null; paid_seconds: number | null }>`
+  const rows = await client.sql<{ gross_amount: number | null; paid_seconds: number | null }>`
     SELECT gross_amount, paid_seconds FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND check_in_at >= ${start} AND check_in_at < ${end}
   `;
@@ -358,7 +365,7 @@ export async function backfillPeriodHistory(
   const paidSeconds = rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
   const netAmount = netForCumulative(gross, paidSeconds, config);
 
-  await db().sql`
+  await client.sql`
     INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
     VALUES (${userId}, ${copenhagenDayKey(start)}, ${copenhagenDayKey(periodEnd)}, ${gross}, ${netAmount}, ${advanceAmount})
   `;
@@ -421,21 +428,22 @@ export async function getPushSubscriptionCount(): Promise<number> {
 // this endpoint — the wording is generated here, same as the checkOut path.
 export async function pushLiveMilestone(kind: "hour-milestone" | "kr-milestone" | "overtime", milestone: number): Promise<void> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
   if (kind === "hour-milestone") {
-    await sendPushToUser(userId, {
+    await sendPushToUser(client, userId, {
       title: `⏱️ Du har nu arbejdet ${milestone} timer denne uge`,
       body: `Du runder ${milestone} timer denne uge, lige nu.`,
       tag: "hour-milestone",
     });
   } else if (kind === "kr-milestone") {
-    await sendPushToUser(userId, {
+    await sendPushToUser(client, userId, {
       title: `🎉 Du er over ${milestone.toLocaleString("da-DK")} kr netto`,
       body: `Du har nu optjent over ${milestone.toLocaleString("da-DK")} kr netto i denne lønperiode.`,
       tag: "milestone",
     });
   } else {
-    await sendPushToUser(userId, {
+    await sendPushToUser(client, userId, {
       title: "⏱️ Du er gået i overtid",
       body: "Du har krydset ugens overtidsgrænse, lige nu.",
       tag: "overtime",
@@ -447,9 +455,9 @@ export async function pushLiveMilestone(kind: "hour-milestone" | "kr-milestone" 
 // OVERTIME / ELAPSED-TIME HELPERS
 // ─────────────────────────────────────────────────────────────
 
-async function recomputePeriodSessions(userId: number, config: WageConfig): Promise<void> {
+async function recomputePeriodSessions(client: DbClient, userId: number, config: WageConfig): Promise<void> {
   const { start, end } = getPayPeriodRange(config);
-  const sessions = await db().sql<SessionRow>`
+  const sessions = await client.sql<SessionRow>`
     SELECT * FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false AND is_manual_entry = false
       AND check_in_at >= ${start} AND check_in_at < ${end}
@@ -478,15 +486,15 @@ async function recomputePeriodSessions(userId: number, config: WageConfig): Prom
       const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, checkOutAt, elapsedThisWeek, thresholdHours, config);
       elapsedThisWeek += (checkOutAt.getTime() - checkInAt.getTime()) / 1000;
       if (paidSeconds !== s.paid_seconds || Math.abs(grossAmount - (s.gross_amount ?? 0)) > 0.001) {
-        await db().sql`UPDATE work_sessions SET paid_seconds = ${Math.round(paidSeconds)}, gross_amount = ${grossAmount} WHERE id = ${s.id}`;
+        await client.sql`UPDATE work_sessions SET paid_seconds = ${Math.round(paidSeconds)}, gross_amount = ${grossAmount} WHERE id = ${s.id}`;
       }
     }
   }
 }
 
-async function rebalancePeriodNetAmounts(userId: number, config: WageConfig): Promise<void> {
+async function rebalancePeriodNetAmounts(client: DbClient, userId: number, config: WageConfig): Promise<void> {
   const { start, end } = getPayPeriodRange(config);
-  const sessions = await db().sql<SessionRow>`
+  const sessions = await client.sql<SessionRow>`
     SELECT * FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND check_in_at >= ${start} AND check_in_at < ${end}
     ORDER BY check_in_at ASC
@@ -501,7 +509,7 @@ async function rebalancePeriodNetAmounts(userId: number, config: WageConfig): Pr
     cumulativeGross += gross;
     cumulativePaidSeconds += seconds;
     if (Math.abs((s.net_amount ?? 0) - net) > 0.001) {
-      await db().sql`UPDATE work_sessions SET net_amount = ${net} WHERE id = ${s.id}`;
+      await client.sql`UPDATE work_sessions SET net_amount = ${net} WHERE id = ${s.id}`;
     }
   }
 }
@@ -523,14 +531,16 @@ export type WageContext = {
   canUndoCheckout: boolean;
 };
 
-export async function getWageContext(): Promise<WageContext> {
-  const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+// Shared by getWageContext (fresh client) and the mutating actions below
+// (checkIn/checkOut/undoLastCheckOut/updateCheckInTime), which already
+// opened a client for their own writes and would otherwise open a SECOND
+// full set of connections just to re-fetch context afterward.
+async function getWageContextFor(client: DbClient, userId: number): Promise<WageContext> {
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
 
   const [openRows, lastClosedRows] = await Promise.all([
-    db().sql<SessionRow>`SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1`,
-    db().sql<{ check_out_at: Date }>`
+    client.sql<SessionRow>`SELECT * FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1`,
+    client.sql<{ check_out_at: Date }>`
       SELECT check_out_at FROM work_sessions
       WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
       ORDER BY check_out_at DESC LIMIT 1
@@ -539,11 +549,11 @@ export async function getWageContext(): Promise<WageContext> {
   const openSession = openRows[0] ?? null;
 
   const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
-  await recomputePeriodSessions(userId, config);
+  await recomputePeriodSessions(client, userId, config);
   const [weekSeconds, periodTotals, todaySeconds] = await Promise.all([
-    priorWeekElapsedSeconds(userId, referenceTime),
-    priorPeriodTotals(userId, referenceTime, config),
-    priorTodayPaidSeconds(userId, referenceTime),
+    priorWeekElapsedSeconds(client, userId, referenceTime),
+    priorPeriodTotals(client, userId, referenceTime, config),
+    priorTodayPaidSeconds(client, userId, referenceTime),
   ]);
 
   const lastClosed = lastClosedRows[0];
@@ -561,6 +571,13 @@ export async function getWageContext(): Promise<WageContext> {
   };
 }
 
+export async function getWageContext(): Promise<WageContext> {
+  const userId = await getUserId();
+  const client = db();
+  await requireActiveAccess(userId, client);
+  return getWageContextFor(client, userId);
+}
+
 // Postgres error code for a unique-constraint violation — thrown by the
 // partial unique index on (user_id) WHERE check_out_at IS NULL (see the
 // 20261016_one_open_session migration). Caught as "already checked in"
@@ -574,24 +591,26 @@ function isUniqueViolation(e: unknown): boolean {
 
 export async function checkIn(): Promise<WageContext> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
   try {
-    await db().sql`INSERT INTO work_sessions (user_id, check_in_at) VALUES (${userId}, now())`;
+    await client.sql`INSERT INTO work_sessions (user_id, check_in_at) VALUES (${userId}, now())`;
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
   }
   revalidatePath("/");
-  return getWageContext();
+  return getWageContextFor(client, userId);
 }
 
 export async function checkOut(): Promise<WageContext> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
 
   // Atomically claim the open session: only one concurrent call can match
   // `check_out_at IS NULL` and flip it, so a double-tap of "tjek ud" can
   // never compute/store earnings twice for the same shift.
-  const claimed = await db().sql<{ id: number; check_in_at: Date; check_out_at: Date }>`
+  const claimed = await client.sql<{ id: number; check_in_at: Date; check_out_at: Date }>`
     UPDATE work_sessions SET check_out_at = now()
     WHERE user_id = ${userId} AND check_out_at IS NULL
       AND id = (SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1)
@@ -600,23 +619,23 @@ export async function checkOut(): Promise<WageContext> {
   const session = claimed[0];
 
   if (session) {
-    const config = toConfig(await getOrCreateWageSettingsRow(userId));
-    await recomputePeriodSessions(userId, config);
+    const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+    await recomputePeriodSessions(client, userId, config);
     const checkInAt = new Date(session.check_in_at);
     const checkOutAt = new Date(session.check_out_at);
     const [weekSecondsBefore, periodBefore] = await Promise.all([
-      priorWeekElapsedSeconds(userId, checkInAt),
-      priorPeriodTotals(userId, checkInAt, config),
+      priorWeekElapsedSeconds(client, userId, checkInAt),
+      priorPeriodTotals(client, userId, checkInAt, config),
     ]);
     const thresholdHours = weeklyOvertimeThresholdHours(config);
     const { paidSeconds, grossAmount } = computeIntervalEarnings(checkInAt, checkOutAt, weekSecondsBefore, thresholdHours, config);
     const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
-    await db().sql`
+    await client.sql`
       UPDATE work_sessions SET paid_seconds = ${Math.round(paidSeconds)}, gross_amount = ${grossAmount}, net_amount = ${netAmount}
       WHERE id = ${session.id}
     `;
-    await rebalancePeriodNetAmounts(userId, config);
+    await rebalancePeriodNetAmounts(client, userId, config);
 
     // Real Web Push, fired from the server so it reaches the lock screen
     // even with the app fully closed — the in-app toast/Notification-API
@@ -630,7 +649,7 @@ export async function checkOut(): Promise<WageContext> {
     const milestoneBefore = Math.floor(nettoBefore / MILESTONE_STEP_KR);
     const milestoneAfter = Math.floor(nettoAfter / MILESTONE_STEP_KR);
     if (milestoneAfter > milestoneBefore) {
-      await sendPushToUser(userId, {
+      await sendPushToUser(client, userId, {
         title: `🎉 Du er over ${(milestoneAfter * MILESTONE_STEP_KR).toLocaleString("da-DK")} kr netto`,
         body: `Du har nu optjent ${formatKr(nettoAfter)} netto i denne lønperiode.`,
         tag: "milestone",
@@ -649,7 +668,7 @@ export async function checkOut(): Promise<WageContext> {
     const hourMilestoneAfter = Math.floor(weekHoursAfter / HOUR_MILESTONE_STEP);
     if (hourMilestoneAfter > hourMilestoneBefore) {
       for (let m = hourMilestoneBefore + 1; m <= hourMilestoneAfter; m++) {
-        await sendPushToUser(userId, {
+        await sendPushToUser(client, userId, {
           title: `⏱️ Du har nu arbejdet ${m * HOUR_MILESTONE_STEP} timer denne uge`,
           body: `Du er på ${weekHoursAfter.toFixed(1)}t ud af ugens grænse på ${thresholdHours}t.`,
           tag: "hour-milestone",
@@ -661,7 +680,7 @@ export async function checkOut(): Promise<WageContext> {
     const isInOvertimeAfter = weekHoursAfter > thresholdHours;
     if (isInOvertimeAfter && !wasInOvertimeBefore) {
       const overtimeRate = config.hourlyRate * (1 + config.overtimeBonusPct);
-      await sendPushToUser(userId, {
+      await sendPushToUser(client, userId, {
         title: "⏱️ Du gik i overtid",
         body: `Din seneste vagt krydsede ugens grænse på ${thresholdHours}t. Timelønnen i overtid er ${formatKr(overtimeRate)}/time.`,
         tag: "overtime",
@@ -670,13 +689,14 @@ export async function checkOut(): Promise<WageContext> {
   }
 
   revalidatePath("/");
-  return getWageContext();
+  return getWageContextFor(client, userId);
 }
 
 export async function undoLastCheckOut(): Promise<ActionResult<WageContext>> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const rows = await db().sql<SessionRow>`
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const rows = await client.sql<SessionRow>`
     SELECT * FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
     ORDER BY check_out_at DESC LIMIT 1
@@ -686,32 +706,33 @@ export async function undoLastCheckOut(): Promise<ActionResult<WageContext>> {
     return fail("Der er ikke noget nyligt tjek ud at fortryde.");
   }
 
-  const reopenRows = await db().sql<{ id: number }>`
+  const reopenRows = await client.sql<{ id: number }>`
     SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL AND id != ${lastClosed.id}
     ORDER BY check_in_at DESC LIMIT 1
   `;
   if (reopenRows[0]) {
-    await db().sql`DELETE FROM work_sessions WHERE id = ${reopenRows[0].id}`;
+    await client.sql`DELETE FROM work_sessions WHERE id = ${reopenRows[0].id}`;
   }
-  await db().sql`UPDATE work_sessions SET check_out_at = NULL, paid_seconds = NULL, gross_amount = NULL, net_amount = NULL WHERE id = ${lastClosed.id}`;
+  await client.sql`UPDATE work_sessions SET check_out_at = NULL, paid_seconds = NULL, gross_amount = NULL, net_amount = NULL WHERE id = ${lastClosed.id}`;
 
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
-  await rebalancePeriodNetAmounts(userId, config);
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/");
-  return ok(await getWageContext());
+  return ok(await getWageContextFor(client, userId));
 }
 
 export async function updateCheckInTime(newCheckInAt: Date): Promise<WageContext> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  const rows = await db().sql<{ id: number }>`SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL LIMIT 1`;
+  const client = db();
+  await requireActiveAccess(userId, client);
+  const rows = await client.sql<{ id: number }>`SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_out_at IS NULL LIMIT 1`;
   if (rows[0]) {
     const now = new Date();
     const clamped = newCheckInAt > now ? now : newCheckInAt;
-    await db().sql`UPDATE work_sessions SET check_in_at = ${clamped} WHERE id = ${rows[0].id}`;
+    await client.sql`UPDATE work_sessions SET check_in_at = ${clamped} WHERE id = ${rows[0].id}`;
   }
   revalidatePath("/");
-  return getWageContext();
+  return getWageContextFor(client, userId);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -779,7 +800,8 @@ export async function getWeekAttendance(referenceDate: Date = new Date()): Promi
 
 export async function addSickDay(dateKey: string, startTime: string, endTime: string): Promise<ActionResult> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
   const [y, m, d] = dateKey.split("-").map(Number);
   const [sh, sm] = startTime.split(":").map(Number);
   const [eh, em] = endTime.split(":").map(Number);
@@ -793,21 +815,21 @@ export async function addSickDay(dateKey: string, startTime: string, endTime: st
 
   const dayStart = startOfDay(checkInAt);
   const dayEnd = endOfDay(checkInAt);
-  const existing = await db().sql<{ id: number }>`
+  const existing = await client.sql<{ id: number }>`
     SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${dayStart} AND check_in_at <= ${dayEnd}
   `;
   if (existing.length > 0) return fail("Der er allerede en registrering denne dag — slet den først, hvis den er forkert.");
 
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
   const { paidSeconds, grossAmount } = computeSickDayEarnings(checkInAt, checkOutAt, config.sickPayHourlyRate, config);
-  const periodBefore = await priorPeriodTotals(userId, checkInAt, config);
+  const periodBefore = await priorPeriodTotals(client, userId, checkInAt, config);
   const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
-  await db().sql`
+  await client.sql`
     INSERT INTO work_sessions (user_id, check_in_at, check_out_at, paid_seconds, gross_amount, net_amount, is_sick_day)
     VALUES (${userId}, ${checkInAt}, ${checkOutAt}, ${Math.round(paidSeconds)}, ${grossAmount}, ${netAmount}, true)
   `;
-  await rebalancePeriodNetAmounts(userId, config);
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/uge");
   revalidatePath("/");
   return ok(undefined);
@@ -833,10 +855,11 @@ export async function getSickDays(): Promise<SickDayEntry[]> {
 
 export async function deleteSickDay(id: number): Promise<void> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  await db().sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_sick_day = true`;
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
-  await rebalancePeriodNetAmounts(userId, config);
+  const client = db();
+  await requireActiveAccess(userId, client);
+  await client.sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_sick_day = true`;
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/uge");
   revalidatePath("/");
 }
@@ -925,27 +948,28 @@ export async function getHistoricalWeeks(): Promise<HistoricalWeek[]> {
 export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<ActionResult> {
   if (!(hours > 0)) return fail("Antal timer skal være positivt.");
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
   const { start, end } = getWeekRange(weekOf);
 
-  const existing = await db().sql<{ id: number }>`
+  const existing = await client.sql<{ id: number }>`
     SELECT id FROM work_sessions WHERE user_id = ${userId} AND check_in_at >= ${start} AND check_in_at <= ${end}
   `;
   if (existing.length > 0) return fail("Der er allerede registreret arbejde i denne uge.");
 
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
   const [weekSecondsBefore, periodBefore] = await Promise.all([
-    priorWeekElapsedSeconds(userId, start),
-    priorPeriodTotals(userId, start, config),
+    priorWeekElapsedSeconds(client, userId, start),
+    priorPeriodTotals(client, userId, start, config),
   ]);
   const { paidSeconds, grossAmount } = computeWeekGrossFromHours(hours, weekSecondsBefore, config);
   const netAmount = netForIncrement(periodBefore.gross, periodBefore.paidSeconds, grossAmount, paidSeconds, config);
 
-  await db().sql`
+  await client.sql`
     INSERT INTO work_sessions (user_id, check_in_at, check_out_at, paid_seconds, gross_amount, net_amount, is_manual_entry)
     VALUES (${userId}, ${start}, ${new Date(start.getTime() + paidSeconds * 1000)}, ${Math.round(paidSeconds)}, ${grossAmount}, ${netAmount}, true)
   `;
-  await rebalancePeriodNetAmounts(userId, config);
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
   return ok(undefined);
@@ -953,10 +977,11 @@ export async function logHistoricalWeek(weekOf: Date, hours: number): Promise<Ac
 
 export async function deleteHistoricalWeek(id: number): Promise<void> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  await db().sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_manual_entry = true`;
-  const config = toConfig(await getOrCreateWageSettingsRow(userId));
-  await rebalancePeriodNetAmounts(userId, config);
+  const client = db();
+  await requireActiveAccess(userId, client);
+  await client.sql`DELETE FROM work_sessions WHERE id = ${id} AND user_id = ${userId} AND is_manual_entry = true`;
+  const config = toConfig(await getOrCreateWageSettingsRow(client, userId));
+  await rebalancePeriodNetAmounts(client, userId, config);
   revalidatePath("/indstillinger");
   revalidatePath("/");
 }

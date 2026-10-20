@@ -65,27 +65,28 @@ export async function createWorkplace(input: CreateWorkplaceInput): Promise<Acti
 
 export async function updateWorkplace(id: number, input: Partial<CreateWorkplaceInput & { enabled: boolean }>): Promise<ActionResult> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
+  const client = db();
+  await requireActiveAccess(userId, client);
 
-  const [existing] = await db().sql<{ id: number }>`SELECT id FROM workplaces WHERE id = ${id} AND user_id = ${userId}`;
+  const [existing] = await client.sql<{ id: number }>`SELECT id FROM workplaces WHERE id = ${id} AND user_id = ${userId}`;
   if (!existing) return fail("Arbejdsstedet findes ikke.");
 
   if (input.name !== undefined) {
     const name = input.name.trim();
     if (!name) return fail("Arbejdsstedet skal have et navn.");
-    await db().sql`UPDATE workplaces SET name = ${name} WHERE id = ${id} AND user_id = ${userId}`;
+    await client.sql`UPDATE workplaces SET name = ${name} WHERE id = ${id} AND user_id = ${userId}`;
   }
   if (input.address !== undefined) {
-    await db().sql`UPDATE workplaces SET address = ${input.address} WHERE id = ${id} AND user_id = ${userId}`;
+    await client.sql`UPDATE workplaces SET address = ${input.address} WHERE id = ${id} AND user_id = ${userId}`;
   }
   if (input.lat !== undefined && input.lng !== undefined) {
-    await db().sql`UPDATE workplaces SET lat = ${input.lat}, lng = ${input.lng} WHERE id = ${id} AND user_id = ${userId}`;
+    await client.sql`UPDATE workplaces SET lat = ${input.lat}, lng = ${input.lng} WHERE id = ${id} AND user_id = ${userId}`;
   }
   if (input.radiusMeters !== undefined) {
-    await db().sql`UPDATE workplaces SET radius_meters = ${input.radiusMeters} WHERE id = ${id} AND user_id = ${userId}`;
+    await client.sql`UPDATE workplaces SET radius_meters = ${input.radiusMeters} WHERE id = ${id} AND user_id = ${userId}`;
   }
   if (input.enabled !== undefined) {
-    await db().sql`UPDATE workplaces SET enabled = ${input.enabled} WHERE id = ${id} AND user_id = ${userId}`;
+    await client.sql`UPDATE workplaces SET enabled = ${input.enabled} WHERE id = ${id} AND user_id = ${userId}`;
   }
   revalidatePath("/arbejdssteder");
   return ok(undefined);
@@ -93,8 +94,9 @@ export async function updateWorkplace(id: number, input: Partial<CreateWorkplace
 
 export async function deleteWorkplace(id: number): Promise<ActionResult> {
   const userId = await getUserId();
-  await requireActiveAccess(userId);
-  await db().sql`DELETE FROM workplaces WHERE id = ${id} AND user_id = ${userId}`;
+  const client = db();
+  await requireActiveAccess(userId, client);
+  await client.sql`DELETE FROM workplaces WHERE id = ${id} AND user_id = ${userId}`;
   revalidatePath("/arbejdssteder");
   return ok(undefined);
 }

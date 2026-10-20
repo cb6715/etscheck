@@ -19,3 +19,9 @@ export function db() {
   const connectionString = process.env.NETLIFY_DB_URL || process.env.DATABASE_URL;
   return connectionString ? getDatabase({ connectionString }) : getDatabase();
 }
+
+// The type of one db() client — passed explicitly through call chains (see
+// actions.ts, live-push-tick.ts) so a single request/tick reuses ONE
+// connection across its several queries instead of opening a fresh one per
+// query. Never cached/reused ACROSS requests — see the comment above.
+export type DbClient = ReturnType<typeof db>;
