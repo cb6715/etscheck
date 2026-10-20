@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Clock, CalendarDays, CalendarRange, MapPin, Settings, LogOut, LogIn } from "lucide-react";
+import { Clock, CalendarDays, CalendarRange, MapPin, Settings, ShieldCheck, LogOut, LogIn } from "lucide-react";
 import clsx from "clsx";
 import { signOut } from "@/lib/actions";
 
@@ -15,11 +15,14 @@ const LINKS = [
   { href: "/indstillinger", label: "Mere", icon: Settings },
 ];
 
+const ADMIN_LINK = { href: "/admin", label: "Admin", icon: ShieldCheck };
+
 const AUTH_FORM_ROUTES = ["/login", "/onboarding"];
 
-export function NavBar({ loggedIn }: { loggedIn: boolean }) {
+export function NavBar({ loggedIn, isOwner = false }: { loggedIn: boolean; isOwner?: boolean }) {
   const pathname = usePathname();
   const onAuthForm = AUTH_FORM_ROUTES.includes(pathname);
+  const links = isOwner ? [...LINKS, ADMIN_LINK] : LINKS;
 
   return (
     <>
@@ -62,7 +65,7 @@ export function NavBar({ loggedIn }: { loggedIn: boolean }) {
       {loggedIn && (
         <nav className="fixed inset-x-0 bottom-0 z-40 px-3 [padding-bottom:max(0.6rem,env(safe-area-inset-bottom))] sm:px-4">
           <div className="glass-strong mx-auto flex w-full max-w-lg items-stretch justify-between rounded-[22px] p-1.5 shadow-[var(--shadow-ambient-lg)]">
-            {LINKS.map((link) => {
+            {links.map((link) => {
               const active = pathname === link.href;
               const Icon = link.icon;
               return (

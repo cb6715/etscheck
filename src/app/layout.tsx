@@ -5,6 +5,7 @@ import "./globals.css";
 import { NavBar } from "@/components/nav-bar";
 import { ToastProvider } from "@/components/toast-provider";
 import { getSessionUserId } from "@/lib/session";
+import { getAccessState } from "@/lib/access";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
@@ -28,7 +29,9 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const loggedIn = (await getSessionUserId()) !== null;
+  const userId = await getSessionUserId();
+  const loggedIn = userId !== null;
+  const isOwner = loggedIn ? (await getAccessState(userId)).isOwner : false;
 
   return (
     <html lang="da" className={`${inter.variable} h-full antialiased`}>
@@ -48,7 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           />
         </div>
         <ToastProvider>
-          <NavBar loggedIn={loggedIn} />
+          <NavBar loggedIn={loggedIn} isOwner={isOwner} />
           <main className="mx-auto w-full max-w-lg min-w-0 flex-1 px-4 pt-5 sm:px-6 [padding-bottom:max(6rem,calc(2rem+env(safe-area-inset-bottom)))]">
             {children}
           </main>

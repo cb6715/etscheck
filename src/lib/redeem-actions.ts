@@ -68,5 +68,57 @@ export async function deleteRedeemCode(id: number): Promise<void> {
   const userId = await getUserId();
   await requireOwner(userId);
   await db().sql`DELETE FROM redeem_codes WHERE id = ${id}`;
-  revalidatePath("/indstillinger");
+  revalidatePath("/admin");
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: brugerstatistik + invitationer
+// ─────────────────────────────────────────────────────────────
+
+export type AdminStats = {
+  totalUsers: number;
+  activeAccess: number; // owner eller aktivt abonnement
+  paidSubscribers: number; // aktivt abonnement, ikke ejer
+};
+
+export async function getAdminStats(): Promise<AdminStats> {
+  const userId = await getUserId();
+  await requireOwner(userId);
+  const [[{ count: totalUsers }], [{ count: paidSubscribers }], [{ count: ownerCount }]] = await Promise.all([
+    db().sql<{ count: string }>`SELECT count(*)::text as count FROM users`,
+    db().sql<{ count: string }>`SELECT count(*)::text as count FROM subscriptions WHERE status = 'active'`,
+    db().sql<{ count: string }>`SELECT count(*)::text as count FROM users WHERE is_owner = true`,
+  ]);
+  return {
+    totalUsers: Number(totalUsers),
+    paidSubscribers: Number(paidSubscribers),
+    activeAccess: Number(paidSubscribers) + Number(ownerCount),
+  };
+}
+
+function randomInviteCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easier to read/type
+  let out = "";
+  for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
+}
+
+/** Generates a fresh, single-use code tied to one invited email (stored as
+ * the code's note — purely a label for the admin list below, the redeemer
+ * can type any email they like, this doesn't gate WHO can redeem it). */
+export async function createInvite(email: string): Promise<ActionResult<{ code: string }>> {
+  const userId = await getUserId();
+  await requireOwner(userId);
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) return fail("Indtast en e-mail.");
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomInviteCode();
+    const existing = await db().sql<{ id: number }>`SELECT id FROM redeem_codes WHERE code = ${code}`;
+    if (existing.length > 0) continue;
+    await db().sql`INSERT INTO redeem_codes (code, max_uses, note) VALUES (${code}, 1, ${trimmedEmail})`;
+    revalidatePath("/admin");
+    return ok({ code });
+  }
+  return fail("Kunne ikke generere en unik kode — prøv igen.");
 }
