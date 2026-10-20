@@ -3,13 +3,15 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Clock, CalendarDays, Settings, LogOut, LogIn } from "lucide-react";
+import { Clock, CalendarDays, CalendarRange, MapPin, Settings, LogOut, LogIn } from "lucide-react";
 import clsx from "clsx";
 import { signOut } from "@/lib/actions";
 
 const LINKS = [
   { href: "/", label: "Hjem", icon: Clock },
   { href: "/uge", label: "Uge", icon: CalendarDays },
+  { href: "/planlaegning", label: "Planlægning", icon: CalendarRange },
+  { href: "/arbejdssteder", label: "Steder", icon: MapPin },
   { href: "/indstillinger", label: "Indstillinger", icon: Settings },
 ];
 
