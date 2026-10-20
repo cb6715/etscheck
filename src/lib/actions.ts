@@ -246,7 +246,18 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
   if (!(newEnd > newStart)) return fail("Den nye periode skal slutte efter den starter.");
 
   const finalTotals = await priorPeriodTotals(userId, newStart, config);
-  const finalPayout = expectedPayout(netForCumulative(finalTotals.gross, finalTotals.paidSeconds, config), config);
+  const finalNetto = netForCumulative(finalTotals.gross, finalTotals.paidSeconds, config);
+  const finalPayout = expectedPayout(finalNetto, config);
+
+  // Snapshotted here, not derived later — wage_settings only ever holds
+  // the CURRENT period's start/end, so once updateWageSettings below
+  // advances it, this exact period's boundaries/totals would otherwise be
+  // gone. Lets the dashboard show "sidste periode: X kr, udbetales d. Y"
+  // reliably after closing, instead of only ever showing the new period.
+  await db().sql`
+    INSERT INTO pay_period_history (user_id, period_start, period_end, gross_amount, net_amount, advance_amount)
+    VALUES (${userId}, ${copenhagenDayKey(config.payPeriodStart)}, ${copenhagenDayKey(config.payPeriodEnd)}, ${finalTotals.gross}, ${finalNetto}, ${config.advanceAmount})
+  `;
 
   await updateWageSettings({ payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
   await sendPushToUser(userId, {
@@ -256,6 +267,42 @@ export async function closePayPeriod(newPeriodEnd: Date): Promise<ActionResult<W
   });
 
   return ok({ ...config, payPeriodStart: newStart, payPeriodEnd: newEnd, advanceAmount: 0 });
+}
+
+export type LastClosedPeriod = {
+  periodStart: string;
+  periodEnd: string;
+  grossAmount: number;
+  netAmount: number;
+  advanceAmount: number;
+};
+
+/** The most recently closed period's final snapshot, or null if none has
+ * ever been closed yet — the dashboard uses this for "sidste periode: X
+ * kr, udbetales d. Y", computing the payout date/amount itself the same
+ * way it already does for the current period (lastWeekdayOfMonth/
+ * expectedPayout), so there's one formula, not two. */
+export async function getLastClosedPeriod(): Promise<LastClosedPeriod | null> {
+  const userId = await getUserId();
+  await requireActiveAccess(userId);
+  const [row] = await db().sql<{
+    period_start: Date;
+    period_end: Date;
+    gross_amount: number;
+    net_amount: number;
+    advance_amount: number;
+  }>`
+    SELECT period_start, period_end, gross_amount, net_amount, advance_amount
+    FROM pay_period_history WHERE user_id = ${userId} ORDER BY period_end DESC LIMIT 1
+  `;
+  if (!row) return null;
+  return {
+    periodStart: copenhagenDayKey(new Date(row.period_start)),
+    periodEnd: copenhagenDayKey(new Date(row.period_end)),
+    grossAmount: row.gross_amount,
+    netAmount: row.net_amount,
+    advanceAmount: row.advance_amount,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { getSessionUserId } from "@/lib/session";
 import { getBillingState } from "@/lib/billing-actions";
 import { Card, Badge, Button } from "@/components/ui/primitives";
 import { CheckoutButton, PortalButton } from "./billing-buttons";
+import { RedeemCodeForm } from "./redeem-code-form";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,8 @@ export default async function AbonnementPage() {
               Betaling er endnu ikke konfigureret
             </Button>
           )}
+
+          <RedeemCodeForm />
 
           <p className="text-center text-xs text-[var(--muted)]">
             Ved at starte abonnementet accepterer du automatisk, månedlig fornyelse indtil du opsiger. Se{" "}

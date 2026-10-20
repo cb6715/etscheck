@@ -342,6 +342,12 @@ export function OnboardingWizard() {
             <Field label="Lønperiode til">
               <input className={inputClass} type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} />
             </Field>
+            {payPeriodStart < dateToInputValue(new Date()) && (
+              <p className="col-span-full text-xs text-[var(--muted)]">
+                Din periode er allerede startet — timer fra før du opretter kontoen bliver ikke talt med automatisk.
+                Du kan lægge dem ind bagefter under Din uge → Historiske timer.
+              </p>
+            )}
           </div>
         )}
 

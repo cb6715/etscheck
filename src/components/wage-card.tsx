@@ -33,7 +33,9 @@ import {
   savePushSubscription,
   getPushSubscriptionCount,
   pushLiveMilestone,
+  getLastClosedPeriod,
   type WageContext,
+  type LastClosedPeriod,
 } from "@/lib/actions";
 import { computeIntervalEarnings, breakdownForCumulative, expectedPayout, feriepengeForGross, lastWeekdayOfMonth } from "@/lib/engine";
 import { zonedParts, addCalendarDays } from "@/lib/timezone";
@@ -105,6 +107,7 @@ export function WageCard() {
   const [newPeriodEndInput, setNewPeriodEndInput] = useState("");
   const [closeError, setCloseError] = useState("");
   const [pushCount, setPushCount] = useState<number | null>(null);
+  const [lastClosedPeriod, setLastClosedPeriod] = useState<LastClosedPeriod | null>(null);
   const [pending, startTransition] = useTransition();
 
   const lastMilestoneRef = useRef<number | null>(null);
@@ -146,8 +149,15 @@ export function WageCard() {
       .catch((e) => console.error("Push count fetch failed:", e));
   }
 
+  function refreshLastClosedPeriod() {
+    getLastClosedPeriod()
+      .then(setLastClosedPeriod)
+      .catch((e) => console.error("Last closed period fetch failed:", e));
+  }
+
   useEffect(() => {
     refreshPushCount();
+    refreshLastClosedPeriod();
   }, []);
 
   // Covers a returning user who granted Notification permission in an
@@ -274,6 +284,22 @@ export function WageCard() {
     if (!context) return null;
     return lastWeekdayOfMonth(new Date(context.config.payPeriodEnd));
   }, [context]);
+
+  // The last CLOSED period's own payout — separate from the live, current
+  // period above. Shown until its own payout date has passed, then this
+  // whole block just stops rendering (see JSX below), since by then it's
+  // old news and the current period's own numbers are what matter again.
+  const lastClosedPayoutDate = useMemo(() => {
+    if (!lastClosedPeriod) return null;
+    return lastWeekdayOfMonth(new Date(lastClosedPeriod.periodEnd));
+  }, [lastClosedPeriod]);
+  const lastClosedPayout = useMemo(() => {
+    if (!lastClosedPeriod) return null;
+    return expectedPayout(lastClosedPeriod.netAmount, { advanceAmount: lastClosedPeriod.advanceAmount });
+  }, [lastClosedPeriod]);
+  const showLastClosedPeriod = Boolean(
+    lastClosedPeriod && lastClosedPayoutDate && now && now.getTime() <= addCalendarDays(startOfDay(lastClosedPayoutDate), 1).getTime()
+  );
 
   const newPeriodStart = useMemo(() => {
     if (!context) return null;
@@ -461,6 +487,7 @@ export function WageCard() {
       setNewPeriodEndInput("");
       dismissPeriodBanner();
       loadContext();
+      refreshLastClosedPeriod();
     });
   }
 
@@ -643,7 +670,13 @@ export function WageCard() {
             {formatKr(payout)}
           </div>
           <div className="relative mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold opacity-90">
-            <span>Netto optjent {formatKr(breakdown.netto)}</span>
+            {showLastClosedPeriod && lastClosedPayout !== null && lastClosedPayoutDate ? (
+              <span className="flex items-center gap-1">
+                <CalendarCheck size={13} /> Sidste løn: {formatKr(lastClosedPayout)} — udbetales {formatDayHeading(lastClosedPayoutDate)}
+              </span>
+            ) : (
+              <span>Netto optjent {formatKr(breakdown.netto)}</span>
+            )}
             <span className="flex items-center gap-1">
               <Gift size={13} /> {formatKr(totalFeriepenge.netto)} feriepenge
             </span>
