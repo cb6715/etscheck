@@ -17,6 +17,7 @@ import { Card, Button } from "@/components/ui/primitives";
 import { TiltWrapper } from "@/components/tilt-wrapper";
 import { ScrollReveal } from "./scroll-reveal";
 import { LiveDemoCard } from "./live-demo-card";
+import { VideoAd } from "./video-ad";
 
 const FEATURES = [
   {
@@ -87,6 +88,28 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* Ad video — click to play, sits right under the hero so the CTA stays above and repeats beside it */}
+      <ScrollReveal>
+        <section className="breakout px-4 sm:px-6" aria-labelledby="ad-heading">
+          <div className="mx-auto grid max-w-5xl items-center gap-8 md:grid-cols-2">
+            <div className="text-center md:text-left">
+              <h2 id="ad-heading" className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                Du arbejder for dine penge — <span className="gradient-text">hold styr på dem</span>
+              </h2>
+              <p className="mx-auto mt-3 max-w-md text-base text-[var(--muted)] md:mx-0">
+                Se på 22 sekunder, hvordan WageFlow giver dig overblik over dine timer og din løn.
+              </p>
+              <div className="mt-6 flex justify-center md:justify-start">
+                <Button href="/onboarding" size="lg" className="gap-2">
+                  Opret konto <ArrowRight size={18} />
+                </Button>
+              </div>
+            </div>
+            <VideoAd />
+          </div>
+        </section>
+      </ScrollReveal>
 
       {/* Features */}
       <ScrollReveal>
