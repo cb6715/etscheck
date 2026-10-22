@@ -95,22 +95,44 @@ export async function priorTodayPaidSeconds(client: DbClient, userId: number, be
   return rows.reduce((sum, r) => sum + (r.paid_seconds ?? 0), 0);
 }
 
+// RAW elapsed seconds (check_out_at - check_in_at) worked TODAY, i.e. WITH
+// the unpaid break still counted in — kept separate from
+// priorTodayPaidSeconds because the "Timer i dag" display is meant to show
+// the whole shift including the break, while every kr/wage figure must
+// keep excluding it. Same raw-elapsed basis priorWeekElapsedSeconds already
+// uses for the overtime clock.
+export async function priorTodayElapsedSeconds(client: DbClient, userId: number, before: Date): Promise<number> {
+  const dayStart = startOfDay(before);
+  const rows = await client.sql<{ check_in_at: Date; check_out_at: Date }>`
+    SELECT check_in_at, check_out_at FROM work_sessions
+    WHERE user_id = ${userId} AND check_out_at IS NOT NULL AND is_sick_day = false
+      AND check_in_at >= ${dayStart} AND check_in_at < ${before}
+  `;
+  return rows.reduce((sum, r) => sum + (new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 1000, 0);
+}
+
 export async function priorPeriodTotals(
   client: DbClient,
   userId: number,
   before: Date,
   config: WageConfig
-): Promise<{ gross: number; paidSeconds: number }> {
+): Promise<{ gross: number; paidSeconds: number; elapsedSeconds: number }> {
   const { start, end } = getPayPeriodRange(config);
   const windowEnd = before < end ? before : end;
-  const rows = await client.sql<{ gross_amount: number | null; paid_seconds: number | null }>`
-    SELECT gross_amount, paid_seconds FROM work_sessions
+  const rows = await client.sql<{ gross_amount: number | null; paid_seconds: number | null; check_in_at: Date; check_out_at: Date }>`
+    SELECT gross_amount, paid_seconds, check_in_at, check_out_at FROM work_sessions
     WHERE user_id = ${userId} AND check_out_at IS NOT NULL
       AND check_in_at >= ${start} AND check_in_at < ${windowEnd}
   `;
   return rows.reduce(
-    (acc, r) => ({ gross: acc.gross + (r.gross_amount ?? 0), paidSeconds: acc.paidSeconds + (r.paid_seconds ?? 0) }),
-    { gross: 0, paidSeconds: 0 }
+    (acc, r) => ({
+      gross: acc.gross + (r.gross_amount ?? 0),
+      paidSeconds: acc.paidSeconds + (r.paid_seconds ?? 0),
+      // RAW elapsed (including any unpaid break) — for the "Timer i
+      // perioden" display only; never used for gross/net wage math.
+      elapsedSeconds: acc.elapsedSeconds + (new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 1000,
+    }),
+    { gross: 0, paidSeconds: 0, elapsedSeconds: 0 }
   );
 }
 

@@ -235,15 +235,27 @@ export function WageCard() {
     }
   }, [context, cumulativeGross]);
 
+  // RAW elapsed seconds of the currently open shift (including the unpaid
+  // break) — deliberately NOT live.paidSeconds, which excludes the break.
+  // Only feeds the "Timer" displays below; every kr figure keeps using
+  // live.paidSeconds/grossAmount via cumulativeSeconds/cumulativeGross above.
+  const liveElapsedSeconds = useMemo(() => {
+    if (!context?.openSession || !now) return 0;
+    const checkInAt = new Date(context.openSession.checkInAt);
+    return (now.getTime() - checkInAt.getTime()) / 1000;
+  }, [context, now]);
+
+  // "Timer i dag"/"Timer i perioden" show the full worked time INCLUDING
+  // the unpaid break — only the kr/wage figures above exclude it.
   const hoursToday = useMemo(() => {
     if (!context) return null;
-    return (context.priorTodayPaidSeconds + (live?.paidSeconds ?? 0)) / 3600;
-  }, [context, live]);
+    return (context.priorTodayElapsedSeconds + liveElapsedSeconds) / 3600;
+  }, [context, liveElapsedSeconds]);
 
   const hoursThisPeriod = useMemo(() => {
     if (!context) return null;
-    return (context.priorPeriodPaidSeconds + (live?.paidSeconds ?? 0)) / 3600;
-  }, [context, live]);
+    return (context.priorPeriodElapsedSeconds + liveElapsedSeconds) / 3600;
+  }, [context, liveElapsedSeconds]);
 
   // Measured against ELAPSED clock time since check-in (not paid seconds),
   // same basis computeIntervalEarnings itself splits normal/overtime on —

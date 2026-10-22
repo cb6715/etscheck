@@ -23,6 +23,7 @@ import {
   toConfig,
   priorWeekElapsedSeconds,
   priorTodayPaidSeconds,
+  priorTodayElapsedSeconds,
   priorPeriodTotals,
   sendPushToUser,
   type WageSettingsRow,
@@ -556,7 +557,9 @@ export type WageContext = {
   thisWeekThresholdHours: number;
   priorPeriodGross: number;
   priorPeriodPaidSeconds: number;
+  priorPeriodElapsedSeconds: number;
   priorTodayPaidSeconds: number;
+  priorTodayElapsedSeconds: number;
   canUndoCheckout: boolean;
 };
 
@@ -579,10 +582,11 @@ async function getWageContextFor(client: DbClient, userId: number): Promise<Wage
 
   const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
   await recomputePeriodSessions(client, userId, config);
-  const [weekSeconds, periodTotals, todaySeconds] = await Promise.all([
+  const [weekSeconds, periodTotals, todaySeconds, todayElapsed] = await Promise.all([
     priorWeekElapsedSeconds(client, userId, referenceTime),
     priorPeriodTotals(client, userId, referenceTime, config),
     priorTodayPaidSeconds(client, userId, referenceTime),
+    priorTodayElapsedSeconds(client, userId, referenceTime),
   ]);
 
   const lastClosed = lastClosedRows[0];
@@ -593,7 +597,9 @@ async function getWageContextFor(client: DbClient, userId: number): Promise<Wage
     thisWeekThresholdHours: weeklyOvertimeThresholdHours(config),
     priorPeriodGross: periodTotals.gross,
     priorPeriodPaidSeconds: periodTotals.paidSeconds,
+    priorPeriodElapsedSeconds: periodTotals.elapsedSeconds,
     priorTodayPaidSeconds: todaySeconds,
+    priorTodayElapsedSeconds: todayElapsed,
     canUndoCheckout: Boolean(
       lastClosed?.check_out_at && Date.now() - new Date(lastClosed.check_out_at).getTime() < UNDO_CHECKOUT_WINDOW_MS
     ),
