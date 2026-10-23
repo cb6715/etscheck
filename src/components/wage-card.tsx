@@ -143,6 +143,25 @@ export function WageCard() {
     loadContext();
   }, [loadContext]);
 
+  // Re-fetch whenever the dashboard becomes visible/focused again — e.g.
+  // after registering a sygedag on "/uge" and navigating back, or
+  // switching back to this PWA tab after it sat in the background. Server
+  // Actions like getWageContext() always run live (no caching layer), but
+  // this component itself only fetched once on mount, so without this the
+  // numbers silently stayed frozen at whatever they were when the page was
+  // first opened — that's "lønen ændrer sig ikke", not a calc bug.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") loadContext();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [loadContext]);
+
   function refreshPushCount() {
     getPushSubscriptionCount()
       .then(setPushCount)

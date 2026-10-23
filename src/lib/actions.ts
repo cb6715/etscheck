@@ -580,7 +580,23 @@ async function getWageContextFor(client: DbClient, userId: number): Promise<Wage
   ]);
   const openSession = openRows[0] ?? null;
 
-  const referenceTime = openSession ? new Date(openSession.check_in_at) : new Date();
+  // With an open session, "before" must be its exact check-in instant —
+  // priorWeekElapsedSeconds etc. use it to find hours worked strictly
+  // BEFORE this still-ticking shift, so the live interval added on top
+  // (client-side) is never double-counted.
+  //
+  // With NO open session, every session these helpers sum is already
+  // closed (check_out_at IS NOT NULL) — a fully known, finished fact with
+  // nothing left to double-count. Using the literal current instant as
+  // "before" here was wrong: a sygedag (or any manually-entered day)
+  // logged for today with a start time later than the exact second this
+  // query runs (e.g. marking yourself sick at 05:45 for a 06:30-15:30 day)
+  // has check_in_at > now, so `check_in_at < before` silently dropped the
+  // entire day from every total — "min løn ændrer sig ikke" after marking
+  // sick, and the week's elapsed-hours (overtime threshold) coming up
+  // short by the same amount. End-of-day still selects today's calendar
+  // day/week correctly but never excludes something dated today.
+  const referenceTime = openSession ? new Date(openSession.check_in_at) : endOfDay(new Date());
   await recomputePeriodSessions(client, userId, config);
   const [weekSeconds, periodTotals, todaySeconds, todayElapsed] = await Promise.all([
     priorWeekElapsedSeconds(client, userId, referenceTime),
